@@ -4,10 +4,10 @@ cd
 apt update && sudo apt upgrade -y &&
 
 
-echo "wellcome choose work"
-echo "install x-ui = 1"
-echo "install tunnel = 2"
-echo "install certificate = 3"
+echo "-------------welcome to vpn creator choose number-------------"
+echo "---------------------install x-ui = 1---------------------"
+echo "--------------------install tunnel = 2--------------------"
+echo "-------------install certificate for subdomain= 3-------------"
 read var7
 
 if [[ "$var7" == "1" ]]; then
@@ -74,7 +74,7 @@ elif [[ "$var7" == "2" ]]; then
     sysctl net.ipv4.tcp_available_congestion_control
     
     # Ask the user a Yes/No question
-    echo "choose server : iran=1 , kharej=2"
+    echo "------------choose server : iran=1 , kharej=2------------"
     read var6
     
     # Check the user's response
@@ -119,8 +119,11 @@ elif [[ "$var7" == "2" ]]; then
 elif [[ "$var7" == "3" ]]; then
     echo "subdomain = "
     read var8
+    var21="drsmhamiri"
+    var22="y"
+    var23="n"
     sudo apt install certbot python3-certbot-nginx
-    sudo certbot --nginx -d "$var8"
+    echo -e "$var21\n$var22\n$var23" |   sudo certbot --nginx -d "$var8"
     sudo certbot renew --dry-run
 else
     echo "Invalid response. Please enter 1 or 2 or 3"
