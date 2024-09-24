@@ -1,7 +1,8 @@
 #!/usr/bin/bash
 
 cd
-apt update & sudo apt upgrade -y
+apt update && sudo apt upgrade -y &&
+
 
 echo "wellcome choose work"
 echo "install x-ui = 1"
