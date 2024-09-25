@@ -1,15 +1,15 @@
 #!/usr/bin/bash
 
+# Update and upgrade system
 cd
-apt update && sudo apt upgrade -y &&
+sudo apt update && sudo apt upgrade -y
+apt install whiptail -y
 
-
-echo "-----------------welcome to vpn creator choose number-----------------"
-echo "----------------------------------------------------------------------"
-echo "-------------------------install x-ui = 1-----------------------------"
-echo "------------------------install tunnel = 2----------------------------"
-echo "-----------------install certificate for subdomain= 3----------------"
-read var7
+# Welcome message and menu with Whiptail
+var7=$(whiptail --title "VPN Creator" --menu "Welcome to VPN creator, choose an option:" 15 60 3 \
+    "1" "Install x-ui" \
+    "2" "Install tunnel" \
+    "3" "Install certificate for subdomain" 3>&1 1>&2 2>&3)
 
 if [[ "$var7" == "1" ]]; then
     # Define default variables
@@ -17,107 +17,87 @@ if [[ "$var7" == "1" ]]; then
     var2="samir"
     var3="samir"
     var4="8443"
-    # Pipe the variables to the second script
+    
+    # Install x-ui with default inputs
     echo -e "$var1\n$var2\n$var3\n$var4" | bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh)
 
 elif [[ "$var7" == "2" ]]; then
     # Disable IPv6
     echo "127.0.0.1 $(hostname)" >> /etc/hosts
-    
-    # Add necessary settings to disable IPv6
     sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1
     sudo sysctl -w net.ipv6.conf.default.disable_ipv6=1
     sudo sysctl -w net.ipv6.conf.lo.disable_ipv6=1
 
     # Make changes permanent by adding to /etc/sysctl.conf
-    echo "Making IPv6 disable permanent..."
-
-    # Check if the lines already exist, if not, add them
     grep -qxF 'net.ipv6.conf.all.disable_ipv6 = 1' /etc/sysctl.conf || echo 'net.ipv6.conf.all.disable_ipv6 = 1' | sudo tee -a /etc/sysctl.conf
     grep -qxF 'net.ipv6.conf.default.disable_ipv6 = 1' /etc/sysctl.conf || echo 'net.ipv6.conf.default.disable_ipv6 = 1' | sudo tee -a /etc/sysctl.conf
     grep -qxF 'net.ipv6.conf.lo.disable_ipv6 = 1' /etc/sysctl.conf || echo 'net.ipv6.conf.lo.disable_ipv6 = 1' | sudo tee -a /etc/sysctl.conf
 
-    # Reload sysctl to apply the changes
     sudo sysctl -p
 
-    # Check and ensure IPv4 is enabled
-    echo "Ensuring IPv4 is enabled..."
-
+    # Ensure IPv4 is enabled
     ipv4_status=$(sysctl net.ipv4.ip_forward | awk '{print $3}')
-
     if [ "$ipv4_status" -eq 1 ]; then
-        echo "IPv4 is already enabled."
+        whiptail --msgbox "IPv4 is already enabled." 8 45
     else
-        # Enable IPv4 forwarding (optional, depending on your needs)
         sudo sysctl -w net.ipv4.ip_forward=1
-        echo "IPv4 has been enabled."
+        whiptail --msgbox "IPv4 has been enabled." 8 45
     fi
 
-    # Final verification
-    echo "Verifying the status of IPv4 and IPv6..."
-    sysctl net.ipv4.ip_forward
-    sysctl net.ipv6.conf.all.disable_ipv6
-
-    echo "IPv4 is enabled, and IPv6 is disabled."
-
-    # BBR
+    # BBR setup
     sudo modprobe tcp_bbr
-    lsmod | grep bbr
     echo "net.core.default_qdisc=fq" | sudo tee -a /etc/sysctl.conf
     echo "net.ipv4.tcp_congestion_control=bbr" | sudo tee -a /etc/sysctl.conf
     sudo sysctl -p
-    sysctl net.ipv4.tcp_congestion_control
-    sysctl net.ipv4.tcp_available_congestion_control
-    
-    # Ask the user a Yes/No question
-    echo "------------------choose server : iran=1 , kharej=2------------------"
-    read var6
-    
-    # Check the user's response
+
+    # Choose server location
+    var6=$(whiptail --title "Choose Server" --menu "Choose server location:" 15 60 2 \
+        "1" "Iran" \
+        "2" "Kharej" 3>&1 1>&2 2>&3)
+
     if [[ "$var6" == "1" ]]; then
-        rm /etc/resolv.conf
-        touch /etc/resolv.conf
-        echo "nameserver 8.8.8.8" >> /etc/resolv.conf
-        echo "nameserver 4.2.2.4" >> /etc/resolv.conf
+        sudo rm /etc/resolv.conf
+        sudo touch /etc/resolv.conf
+        echo "nameserver 8.8.8.8" | sudo tee -a /etc/resolv.conf
+        echo "nameserver 4.2.2.4" | sudo tee -a /etc/resolv.conf
+
         var11="2"
         var12="1"
         var13="no"
         var14="5.4"
         var16="qwer"
         var17="no"
-        echo "SNI Domain = "
-        read var15
+        var15=$(whiptail --inputbox "Enter the SNI Domain:" 8 39 3>&1 1>&2 2>&3)
         echo -e "$var11" | bash <(curl -Ls https://raw.githubusercontent.com/radkesvat/ReverseTlsTunnel/master/scripts/RtTunnel.sh)
         echo -e "$var12\n$var13\n$var14\n$var6\n$var15\n$var16\n$var17" | bash <(curl -Ls https://raw.githubusercontent.com/radkesvat/ReverseTlsTunnel/master/scripts/RtTunnel.sh)
 
     elif [[ "$var6" == "2" ]]; then
-        rm /etc/resolv.conf
-        touch /etc/resolv.conf
-        echo "nameserver 1.1.1.1" >> /etc/resolv.conf
-        echo "nameserver 1.0.0.1" >> /etc/resolv.conf
+        sudo rm /etc/resolv.conf
+        sudo touch /etc/resolv.conf
+        echo "nameserver 1.1.1.1" | sudo tee -a /etc/resolv.conf
+        echo "nameserver 1.0.0.1" | sudo tee -a /etc/resolv.conf
+
         var11="2"
         var12="1"
         var13="no"
         var14="5.4"
         var16="qwer"
         var17="no"
-        echo "SNI Domain = "
-        read var15
-        echo "IP Iran = "
-        read var18
+        var15=$(whiptail --inputbox "Enter the SNI Domain:" 8 39 3>&1 1>&2 2>&3)
+        var18=$(whiptail --inputbox "Enter the Iran IP:" 8 39 3>&1 1>&2 2>&3)
         echo -e "$var11" | bash <(curl -Ls https://raw.githubusercontent.com/radkesvat/ReverseTlsTunnel/master/scripts/RtTunnel.sh)
         echo -e "$var12\n$var13\n$var14\n$var6\n$var15\n$var18\n$var16" | bash <(curl -Ls https://raw.githubusercontent.com/radkesvat/ReverseTlsTunnel/master/scripts/RtTunnel.sh)
 
     else
-        echo "Invalid response. Please enter 1 or 2."
+        whiptail --msgbox "Invalid response. Please enter 1 or 2." 8 45
     fi
 
 elif [[ "$var7" == "3" ]]; then
-    echo "subdomain = "
-    read var8
-    sudo apt install certbot python3-certbot-nginx
+    var8=$(whiptail --inputbox "Enter your subdomain:" 8 39 3>&1 1>&2 2>&3)
+    sudo apt install certbot python3-certbot-nginx -y
     sudo certbot --nginx -d "$var8" --register-unsafely-without-email --agree-tos
     sudo certbot renew --dry-run
+
 else
-    echo "Invalid response. Please enter 1 or 2 or 3"
+    whiptail --msgbox "Invalid response. Please enter 1, 2, or 3." 8 45
 fi
