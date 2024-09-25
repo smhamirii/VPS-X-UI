@@ -5,8 +5,8 @@ apt update && sudo apt upgrade -y &&
 
 
 echo "-------------welcome to vpn creator choose number-------------"
-echo "---------------------install x-ui = 1---------------------"
-echo "--------------------install tunnel = 2--------------------"
+echo "---------------------install x-ui = 1-------------------------"
+echo "--------------------install tunnel = 2------------------------"
 echo "-------------install certificate for subdomain= 3-------------"
 read var7
 
@@ -14,8 +14,8 @@ if [[ "$var7" == "1" ]]; then
     # Define default variables
     var1="y"
     var2="samir"
-    var3="Mazandaran21@"
-    var4="1400"
+    var3="samir"
+    var4="8443"
     # Pipe the variables to the second script
     echo -e "$var1\n$var2\n$var3\n$var4" | bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh)
 
@@ -119,7 +119,7 @@ elif [[ "$var7" == "2" ]]; then
 elif [[ "$var7" == "3" ]]; then
     echo "subdomain = "
     read var8
-    var21="drsmhamiri"
+    var21="drsmhamiri@gmail.com"
     var22="y"
     var23="n"
     sudo apt install certbot python3-certbot-nginx
