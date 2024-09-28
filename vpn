@@ -5,6 +5,19 @@ cd
 sudo apt update && sudo apt upgrade -y
 apt install whiptail -y
 
+# Disable IPv6
+echo "127.0.0.1 $(hostname)" >> /etc/hosts
+sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1
+sudo sysctl -w net.ipv6.conf.default.disable_ipv6=1
+sudo sysctl -w net.ipv6.conf.lo.disable_ipv6=1
+
+# Make changes permanent by adding to /etc/sysctl.conf
+grep -qxF 'net.ipv6.conf.all.disable_ipv6 = 1' /etc/sysctl.conf || echo 'net.ipv6.conf.all.disable_ipv6 = 1' | sudo tee -a /etc/sysctl.conf
+grep -qxF 'net.ipv6.conf.default.disable_ipv6 = 1' /etc/sysctl.conf || echo 'net.ipv6.conf.default.disable_ipv6 = 1' | sudo tee -a /etc/sysctl.conf
+grep -qxF 'net.ipv6.conf.lo.disable_ipv6 = 1' /etc/sysctl.conf || echo 'net.ipv6.conf.lo.disable_ipv6 = 1' | sudo tee -a /etc/sysctl.conf
+
+sudo sysctl -p
+
 while true; do
     var7=$(whiptail --title "VPN Creator" --menu "Welcome to VPN creator, choose an option:" 20 70 8 \
         "1" "Check Internet Connection" \
@@ -61,18 +74,6 @@ while true; do
             echo -e "$var1\n$var2\n$var3\n$var4" | bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh)
             ;;
         "3")
-            # Disable IPv6
-            echo "127.0.0.1 $(hostname)" >> /etc/hosts
-            sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1
-            sudo sysctl -w net.ipv6.conf.default.disable_ipv6=1
-            sudo sysctl -w net.ipv6.conf.lo.disable_ipv6=1
-
-            # Make changes permanent by adding to /etc/sysctl.conf
-            grep -qxF 'net.ipv6.conf.all.disable_ipv6 = 1' /etc/sysctl.conf || echo 'net.ipv6.conf.all.disable_ipv6 = 1' | sudo tee -a /etc/sysctl.conf
-            grep -qxF 'net.ipv6.conf.default.disable_ipv6 = 1' /etc/sysctl.conf || echo 'net.ipv6.conf.default.disable_ipv6 = 1' | sudo tee -a /etc/sysctl.conf
-            grep -qxF 'net.ipv6.conf.lo.disable_ipv6 = 1' /etc/sysctl.conf || echo 'net.ipv6.conf.lo.disable_ipv6 = 1' | sudo tee -a /etc/sysctl.conf
-
-            sudo sysctl -p
 
             # BBR setup
             sudo modprobe tcp_bbr
