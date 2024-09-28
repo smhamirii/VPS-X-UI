@@ -3,6 +3,7 @@
 # Update and upgrade system
 cd
 sudo apt update && sudo apt upgrade -y
+wait
 apt install whiptail -y
 
 # Disable IPv6
@@ -101,6 +102,7 @@ while true; do
             if [[ "$var6" == "1" ]]; then
                 var11="2"
                 echo -e "$var11" | bash <(curl -Ls https://raw.githubusercontent.com/radkesvat/ReverseTlsTunnel/master/scripts/RtTunnel.sh)
+                wait
                 sudo rm /etc/resolv.conf
                 sudo touch /etc/resolv.conf
                 
@@ -119,6 +121,7 @@ while true; do
             elif [[ "$var6" == "2" ]]; then
                 var11="2"
                 echo -e "$var11" | bash <(curl -Ls https://raw.githubusercontent.com/radkesvat/ReverseTlsTunnel/master/scripts/RtTunnel.sh)
+                wait
                 sudo rm /etc/resolv.conf
                 sudo touch /etc/resolv.conf
 
