@@ -5,6 +5,7 @@ cd
 sudo apt update && sudo apt upgrade -y
 wait
 apt install whiptail -y
+apt-get install jq
 
 # Disable IPv6
 echo "127.0.0.1 $(hostname)" >> /etc/hosts
@@ -163,7 +164,7 @@ while true; do
                 read -p "Enter your custom subdomain (e.g., api, blog): " SUBDOMAIN
 
                 # Get the public IP of the machine (server IP)
-                IP=$(curl -s https://ifconfig.me)
+                IP=$(curl -s https://api.ipify.org)
 
                 # Exit if IP is not retrieved
                 if [ -z "$IP" ]; then
