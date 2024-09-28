@@ -99,30 +99,32 @@ while true; do
                 "2" "Kharej" 3>&1 1>&2 2>&3)
 
             if [[ "$var6" == "1" ]]; then
+                var11="2"
+                echo -e "$var11" | bash <(curl -Ls https://raw.githubusercontent.com/radkesvat/ReverseTlsTunnel/master/scripts/RtTunnel.sh)
                 sudo rm /etc/resolv.conf
                 sudo touch /etc/resolv.conf
                 
                 echo "nameserver 8.8.8.8" | sudo tee -a /etc/resolv.conf
                 echo "nameserver 4.2.2.4" | sudo tee -a /etc/resolv.conf
 
-                var11="2"
                 var12="1"
                 var13="no"
                 var14="5.4"
                 var16="qwer"
                 var17="no"
                 var15=$(whiptail --inputbox "Enter the SNI Domain:" 8 39 3>&1 1>&2 2>&3)
-                echo -e "$var11" | bash <(curl -Ls https://raw.githubusercontent.com/radkesvat/ReverseTlsTunnel/master/scripts/RtTunnel.sh)
+                
                 echo -e "$var12\n$var13\n$var14\n$var6\n$var15\n$var16\n$var17" | bash <(curl -Ls https://raw.githubusercontent.com/radkesvat/ReverseTlsTunnel/master/scripts/RtTunnel.sh)
 
             elif [[ "$var6" == "2" ]]; then
+                var11="2"
+                echo -e "$var11" | bash <(curl -Ls https://raw.githubusercontent.com/radkesvat/ReverseTlsTunnel/master/scripts/RtTunnel.sh)
                 sudo rm /etc/resolv.conf
                 sudo touch /etc/resolv.conf
 
                 echo "nameserver 1.1.1.1" | sudo tee -a /etc/resolv.conf
                 echo "nameserver 1.0.0.1" | sudo tee -a /etc/resolv.conf
 
-                var11="2"
                 var12="1"
                 var13="no"
                 var14="5.4"
@@ -130,7 +132,7 @@ while true; do
                 var17="no"
                 var15=$(whiptail --inputbox "Enter the SNI Domain:" 8 39 3>&1 1>&2 2>&3)
                 var18=$(whiptail --inputbox "Enter the Iran IP:" 8 39 3>&1 1>&2 2>&3)
-                echo -e "$var11" | bash <(curl -Ls https://raw.githubusercontent.com/radkesvat/ReverseTlsTunnel/master/scripts/RtTunnel.sh)
+                
                 echo -e "$var12\n$var13\n$var14\n$var6\n$var15\n$var18\n$var16" | bash <(curl -Ls https://raw.githubusercontent.com/radkesvat/ReverseTlsTunnel/master/scripts/RtTunnel.sh)
 
             else
@@ -145,7 +147,7 @@ while true; do
             sudo certbot renew --dry-run
             ;;
         "5")
-                # Function to manage Cloudflare DNS (from project 2)
+            # Function to manage Cloudflare DNS (from project 2)
             cloudflare_dns_management() {
                 # Check if jq is installed, which is used to parse JSON
                 if ! command -v jq &> /dev/null; then
