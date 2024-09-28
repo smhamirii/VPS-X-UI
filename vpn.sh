@@ -5,7 +5,7 @@ cd
 sudo apt update && sudo apt upgrade -y
 wait
 apt install whiptail -y
-apt-get install jq
+apt-get install jq -y
 
 # Disable IPv6
 echo "127.0.0.1 $(hostname)" >> /etc/hosts
