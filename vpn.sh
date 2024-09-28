@@ -19,7 +19,7 @@ sudo apt install -y unattended-upgrades
 
 # Step 3: Enable unattended-upgrades
 echo "Enabling unattended-upgrades..."
-sudo dpkg-reconfigure --priority=low unattended-upgrades
+sudo dpkg-reconfigure --priority=low unattended-upgrades -y
 
 # Step 4: Configure unattended-upgrades to apply kernel updates and reboot automatically
 
@@ -45,10 +45,6 @@ echo 'APT::Periodic::Unattended-Upgrade "1";' | sudo tee -a $AUTO_UPGRADES_FILE 
 # Step 6: Restart unattended-upgrades service
 echo "Restarting unattended-upgrades service..."
 sudo systemctl restart unattended-upgrades
-
-# Step 7: Display status of unattended-upgrades
-echo "Displaying status of unattended-upgrades..."
-sudo systemctl status unattended-upgrades
 
 echo "Kernel auto-upgrade setup completed."
 
