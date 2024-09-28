@@ -7,6 +7,51 @@ wait
 apt install whiptail -y
 apt-get install jq -y
 
+# Kernel Auto-Upgrade Script using unattended-upgrades for Ubuntu 22.04
+
+# Step 1: Update package lists
+echo "Updating package lists..."
+sudo apt update
+
+# Step 2: Install unattended-upgrades if not already installed
+echo "Installing unattended-upgrades..."
+sudo apt install -y unattended-upgrades
+
+# Step 3: Enable unattended-upgrades
+echo "Enabling unattended-upgrades..."
+sudo dpkg-reconfigure --priority=low unattended-upgrades
+
+# Step 4: Configure unattended-upgrades to apply kernel updates and reboot automatically
+
+# Unattended-Upgrades Configuration File
+CONFIG_FILE="/etc/apt/apt.conf.d/50unattended-upgrades"
+
+# Backup existing configuration
+sudo cp $CONFIG_FILE $CONFIG_FILE.bak
+
+# Modify configuration to ensure kernel updates and reboots are enabled
+sudo sed -i '/^\/\/ "${distro_id}:${distro_codename}-updates";/s/^\/\///' $CONFIG_FILE
+sudo sed -i '/^\/\/ Unattended-Upgrade::Automatic-Reboot "false";/s/^\/\///' $CONFIG_FILE
+sudo sed -i 's/Unattended-Upgrade::Automatic-Reboot "false"/Unattended-Upgrade::Automatic-Reboot "true"/' $CONFIG_FILE
+sudo sed -i 's/\/\/ Unattended-Upgrade::Automatic-Reboot-Time "02:00"/Unattended-Upgrade::Automatic-Reboot-Time "02:00"/' $CONFIG_FILE
+
+# Step 5: Enable automatic updates
+AUTO_UPGRADES_FILE="/etc/apt/apt.conf.d/20auto-upgrades"
+
+# Ensure this file contains the required lines for periodic updates
+echo 'APT::Periodic::Update-Package-Lists "1";' | sudo tee $AUTO_UPGRADES_FILE > /dev/null
+echo 'APT::Periodic::Unattended-Upgrade "1";' | sudo tee -a $AUTO_UPGRADES_FILE > /dev/null
+
+# Step 6: Restart unattended-upgrades service
+echo "Restarting unattended-upgrades service..."
+sudo systemctl restart unattended-upgrades
+
+# Step 7: Display status of unattended-upgrades
+echo "Displaying status of unattended-upgrades..."
+sudo systemctl status unattended-upgrades
+
+echo "Kernel auto-upgrade setup completed."
+
 # Disable IPv6
 echo "127.0.0.1 $(hostname)" >> /etc/hosts
 sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1
