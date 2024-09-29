@@ -14,4 +14,4 @@ This project provides a Bash script that allows you to manage various VPN-relate
 To install the VPN Creator Script, run the following command:
 
 ```bash
-rm -f vpn.sh && wget https://raw.githubusercontent.com/smhamirii/vpnserver/refs/heads/main/vpn.sh && chmod +x vpn.sh && ./vpn.sh
+bash <(curl -fsSL https://raw.githubusercontent.com/smhamirii/vpnserver/refs/heads/main/vpn.sh)
