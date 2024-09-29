@@ -7,12 +7,6 @@ wait
 apt install whiptail -y
 apt-get install jq -y
 
-# Kernel Auto-Upgrade Script using unattended-upgrades for Ubuntu 22.04
-
-# Step 1: Update package lists
-echo "Updating package lists..."
-sudo apt update
-
 # Step 2: Install unattended-upgrades if not already installed
 echo "Installing unattended-upgrades..."
 sudo apt install -y unattended-upgrades
@@ -62,11 +56,11 @@ grep -qxF 'net.ipv6.conf.lo.disable_ipv6 = 1' /etc/sysctl.conf || echo 'net.ipv6
 sudo sysctl -p
 
 while true; do
-    var7=$(whiptail --title "VPN Creator" --menu "Welcome to VPN creator, choose an option:" 20 70 8 \
+    var7=$(whiptail --title "SAMIR VPN Creator" --menu "Welcome to Samir VPN creator, choose an option:" 20 70 8 \
         "1" "Check Internet Connection" \
         "2" "Install X-UI" \
-        "3" "Install Tunnel" \
-        "4" "Install Certificate for Subdomain" \
+        "3" "Install Reverse Tunnel" \
+        "4" "Certificate for Subdomain" \
         "5" "Cloudflare DNS Management" \
         "6" "Unistall X-UI" \
         "7" "Unistall Tunnel" \
@@ -192,7 +186,7 @@ while true; do
             sudo certbot renew --dry-run
             ;;
         "5")
-            # Function to manage Cloudflare DNS (from project 2)
+            # Function to manage Cloudflare DNS 
             cloudflare_dns_management() {
                 # Check if jq is installed, which is used to parse JSON
                 if ! command -v jq &> /dev/null; then
@@ -270,7 +264,6 @@ while true; do
             var31="5"
             var32="y"
             echo -e "$var31\n$var32" | x-ui
-            exit 0
             ;;
         "7")
             # unistall tunnel
