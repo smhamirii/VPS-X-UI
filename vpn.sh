@@ -139,8 +139,6 @@ while true; do
                 unzip -o v5.4_linux_amd64.zip
                 chmod +x RTT
                 rm v5.4_linux_amd64.zip
-
-                whiptail --msgbox "Finished." 8 45
             }
 
             # Function to configure arguments based on user's choice
@@ -527,6 +525,7 @@ EOF"
             ;;                
         *)
             whiptail --msgbox "Invalid option selected." 11 45
+            exit 0
             ;;
     esac
 done   
