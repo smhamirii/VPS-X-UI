@@ -131,6 +131,7 @@ while true; do
 
             if [[ "$var6" == "1" ]]; then
                 var11="2"
+                wait
                 echo -e "$var11" | bash <(curl -Ls https://raw.githubusercontent.com/radkesvat/ReverseTlsTunnel/master/scripts/RtTunnel.sh)
                 wait
                 sudo rm /etc/resolv.conf
@@ -157,6 +158,7 @@ while true; do
 
             elif [[ "$var6" == "2" ]]; then
                 var11="2"
+                wait
                 echo -e "$var11" | bash <(curl -Ls https://raw.githubusercontent.com/radkesvat/ReverseTlsTunnel/master/scripts/RtTunnel.sh)
                 wait
                 sudo rm /etc/resolv.conf
@@ -367,6 +369,7 @@ EOF"
         "7")
             # unistall tunnel
             var11="2"
+            wait
             echo -e "$var11" | bash <(curl -Ls https://raw.githubusercontent.com/radkesvat/ReverseTlsTunnel/master/scripts/RtTunnel.sh)
             ;;
         "8")
