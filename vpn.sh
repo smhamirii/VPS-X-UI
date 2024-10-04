@@ -28,8 +28,7 @@ grep -qxF 'net.ipv6.conf.default.disable_ipv6 = 1' /etc/sysctl.conf || echo 'net
 grep -qxF 'net.ipv6.conf.lo.disable_ipv6 = 1' /etc/sysctl.conf || echo 'net.ipv6.conf.lo.disable_ipv6 = 1' | sudo tee -a /etc/sysctl.conf
 
 sudo sysctl -p
-
-
+clear
 
 while true; do
     var7=$(whiptail --title "SAMIR VPN Creator" --menu "Welcome to Samir VPN Creator, choose an option:" 20 70 10 \
@@ -108,6 +107,8 @@ while true; do
             # Step 6: Restart unattended-upgrades service
             sudo systemctl restart unattended-upgrades
             echo "Kernel auto-upgrade setup completed."
+            
+            clear
             ;;
         "2")
             # Install x-ui
@@ -118,75 +119,103 @@ while true; do
             echo -e "$var1\n$var2\n$var3\n$var4" | bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh)
             ;;
         "3")
-            # BBR setup
-            sudo modprobe tcp_bbr
-            echo "net.core.default_qdisc=fq" | sudo tee -a /etc/sysctl.conf
-            echo "net.ipv4.tcp_congestion_control=bbr" | sudo tee -a /etc/sysctl.conf
-            sudo sysctl -p
 
-            # Choose server location
-            var6=$(whiptail --title "Choose Server" --menu "Choose server location:" 15 60 2 \
-                "1" "Iran" \
-                "2" "Kharej" 3>&1 1>&2 2>&3)
+            check_dependencies() {
+                detect_distribution
 
-            if [[ "$var6" == "1" ]]; then
-                var11="2"
-                wait
-                echo -e "$var11" | bash <(curl -Ls https://raw.githubusercontent.com/radkesvat/ReverseTlsTunnel/master/scripts/RtTunnel.sh)
-                wait
-                sudo rm /etc/resolv.conf
-                sudo touch /etc/resolv.conf
-
-                # change dns
-                echo "nameserver 8.8.8.8" | sudo tee -a /etc/resolv.conf
-                echo "nameserver 4.2.2.4" | sudo tee -a /etc/resolv.conf
+                local dependencies=("wget" "lsof" "iptables" "unzip" "gcc" "git" "curl" "tar")
                 
-                # reload dns
-                sudo systemd-resolve --flush-caches
-                sudo systemctl restart systemd-resolved
+                for dep in "${dependencies[@]}"; do
+                    if ! command -v "${dep}" &> /dev/null; then
+                        whiptail --msgbox "${dep} is not installed. Installing..." 8 45
+                        sudo "${package_manager}" install "${dep}" -y
+                    fi
+                done
+            }
 
-                # options
-                var12="1"
-                var13="no"
-                var14="5.4"
-                var16="qwer"
-                var17="no"
-                var15=$(whiptail --inputbox "Enter the SNI Domain:" 8 39 3>&1 1>&2 2>&3)
-                
-                # script
-                echo -e "$var12\n$var13\n$var14\n$var6\n$var15\n$var16\n$var17" | bash <(curl -Ls https://raw.githubusercontent.com/radkesvat/ReverseTlsTunnel/master/scripts/RtTunnel.sh)
+            # Check installed service
+            check_installed() {
+                if [ -f "/etc/systemd/system/tunnel.service" ]; then
+                    whiptail --msgbox "The service is already installed." 8 45
+                    exit 1
+                fi
+            }
 
-            elif [[ "$var6" == "2" ]]; then
-                var11="2"
-                wait
-                echo -e "$var11" | bash <(curl -Ls https://raw.githubusercontent.com/radkesvat/ReverseTlsTunnel/master/scripts/RtTunnel.sh)
-                wait
-                sudo rm /etc/resolv.conf
-                sudo touch /etc/resolv.conf
+            # Custom version
+            install_rtt_custom() {
+                if pgrep -x "RTT" > /dev/null; then
+                    whiptail --msgbox "Tunnel is running! You must stop the tunnel before updating. (pkill RTT)\nUpdate is canceled." 10 60
+                    exit
+                fi
 
-                # change dns
-                echo "nameserver 1.1.1.1" | sudo tee -a /etc/resolv.conf
-                echo "nameserver 1.0.0.1" | sudo tee -a /etc/resolv.conf
-                
-                # reload dns
-                sudo systemd-resolve --flush-caches
-                sudo systemctl restart systemd-resolved
+                URL="https://github.com/radkesvat/ReverseTlsTunnel/releases/download/V5.4/v5.4_linux_amd64.zip"
 
-                # options
-                var12="1"
-                var13="no"
-                var14="5.4"
-                var16="qwer"
-                var17="no"
-                var15=$(whiptail --inputbox "Enter the SNI Domain:" 8 39 3>&1 1>&2 2>&3)
-                var18=$(whiptail --inputbox "Enter the Iran IP:" 8 39 3>&1 1>&2 2>&3)
-                
-                # script
-                echo -e "$var12\n$var13\n$var14\n$var6\n$var15\n$var18\n$var16" | bash <(curl -Ls https://raw.githubusercontent.com/radkesvat/ReverseTlsTunnel/master/scripts/RtTunnel.sh)
+                wget $URL -O v5.4_linux_amd64.zip
+                unzip -o v5.4_linux_amd64.zip
+                chmod +x RTT
+                rm v5.4_linux_amd64.zip
 
-            else
-                whiptail --msgbox "Invalid response. Please enter 1 or 2." 8 45
-            fi
+                whiptail --msgbox "Finished." 8 45
+            }
+
+            # Function to configure arguments based on user's choice
+            configure_arguments() {
+                server_choice=$(whiptail --title "Server Selection" --menu "Which server do you want to use?" 15 60 2 \
+                    "1" "Iran (internal-server)" \
+                    "2" "Kharej (external-server)" 3>&1 1>&2 2>&3)
+
+                if [ $? -ne 0 ]; then
+                    whiptail --msgbox "Operation canceled." 8 45
+                    exit 1
+                fi
+
+                sni=$(whiptail --inputbox "Please Enter SNI (default: tamin.ir):" 10 60 "tamin.ir" 3>&1 1>&2 2>&3)
+
+                if [ "$server_choice" == "2" ]; then
+                    server_ip=$(whiptail --inputbox "Please Enter IRAN IP (internal-server):" 10 60 3>&1 1>&2 2>&3)
+                    arguments="--kharej --iran-ip:$server_ip --iran-port:443 --toip:127.0.0.1 --toport:multiport --password:qwer --sni:$sni --terminate:24"
+                elif [ "$server_choice" == "1" ]; then
+                    arguments="--iran --lport:23-65535 --sni:$sni --password:qwer --terminate:24"
+                else
+                    whiptail --msgbox "Invalid choice. Please enter '1' or '2'." 8 45
+                    exit 1
+                fi
+            }
+
+            # Function to handle installation
+            installtunnel() {
+                check_dependencies
+                check_installed
+                install_rtt_custom
+
+                # Change directory to /etc/systemd/system
+                cd /etc/systemd/system
+
+                configure_arguments
+
+                # Create a new service file named tunnel.service
+                cat <<EOL > tunnel.service
+[Unit]
+Description=my tunnel service
+
+[Service]
+Type=idle
+User=root
+WorkingDirectory=/root
+ExecStart=/root/RTT $arguments
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+EOL
+
+                # Reload systemctl daemon and start the service
+                sudo systemctl daemon-reload
+                sudo systemctl start tunnel.service
+                sudo systemctl enable tunnel.service
+            }
+
+            installtunnel
             ;;
         "4")
             # Install cron if not already installed and enable it
@@ -368,9 +397,27 @@ EOF"
             ;;
         "7")
             # unistall tunnel
-            var11="2"
-            wait
-            echo -e "$var11" | bash <(curl -Ls https://raw.githubusercontent.com/radkesvat/ReverseTlsTunnel/master/scripts/RtTunnel.sh)
+            uninstalltunnel() {
+                # Check if the service is installed
+                if [ ! -f "/etc/systemd/system/tunnel.service" ]; then
+                    echo "The service is not installed."
+                    return
+                fi
+
+                # Stop and disable the service
+                sudo systemctl stop tunnel.service
+                sudo systemctl disable tunnel.service
+
+                # Remove service file
+                sudo rm /etc/systemd/system/tunnel.service
+                sudo systemctl reset-failed
+                sudo rm RTT
+                sudo rm install.sh 2>/dev/null
+
+                echo "Uninstallation completed successfully."
+            }
+            
+            uninstalltunnel
             ;;
         "8")
             # Function to revoke a certificate for a specific subdomain
