@@ -29,6 +29,9 @@ grep -qxF 'net.ipv6.conf.lo.disable_ipv6 = 1' /etc/sysctl.conf || echo 'net.ipv6
 
 sudo sysctl -p
 
+#clear screen
+clear
+
 while true; do
     var7=$(whiptail --title "SAMIR VPN Creator" --menu "Welcome to Samir VPN Creator, choose an option:" 20 70 9 \
         "1" "Server Upgrade" \
