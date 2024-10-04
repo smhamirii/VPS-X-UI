@@ -381,14 +381,14 @@ EOF"
             ;;
         "7")
             check_tunnel_status() {
-            # Check the status of the tunnel service
-            if sudo systemctl is-active --quiet tunnel.service; then
-                echo  "Tunnel is Active"
-            else
-                echo  "Tunnel is Deactive"
-            fi
+                # Check the status of the tunnel service
+                if sudo systemctl is-active --quiet tunnel.service; then
+                    whiptail --msgbox "Tunnel is Active" 8 45
+                else
+                    whiptail --msgbox "Tunnel is Deactive" 8 45
+                fi
             }
-            
+
             check_tunnel_status
             ;;
         "8")
