@@ -29,20 +29,20 @@ grep -qxF 'net.ipv6.conf.lo.disable_ipv6 = 1' /etc/sysctl.conf || echo 'net.ipv6
 
 sudo sysctl -p
 
-#clear screen
-clear
+
 
 while true; do
-    var7=$(whiptail --title "SAMIR VPN Creator" --menu "Welcome to Samir VPN Creator, choose an option:" 20 70 9 \
+    var7=$(whiptail --title "SAMIR VPN Creator" --menu "Welcome to Samir VPN Creator, choose an option:" 20 70 10 \
         "1" "Server Upgrade" \
         "2" "Install X-UI Panel" \
         "3" "Install Reverse Tunnel" \
-        "4" "Certificate for Subdomain" \
+        "4" "Certificate for Subdomain SSL" \
         "5" "Cloudflare DNS Management" \
         "6" "Unistall X-UI Panel" \
         "7" "Unistall Reverse Tunnel" \
-        "8" "Check Internet Connection" \
-        "9" "Exit" 3>&1 1>&2 2>&3)
+        "8" "Revoke Certificate SSL" \
+        "9" "Check Internet Connection" \
+        "10" "Exit" 3>&1 1>&2 2>&3)
 
     case "$var7" in
         "1")
@@ -399,6 +399,62 @@ EOF"
             Current Server Location: $server_location" 20 70        
             ;;
         "9")
+            # Function to revoke a certificate for a subdomain
+            revoke_certificate() {
+                # Prompt for subdomain
+                read -p "Please enter the subdomain for which you want to revoke the SSL certificate (e.g., subdomain.example.com): " SUBDOMAIN
+
+                # Validate that the subdomain is not empty
+                if [[ -z "$SUBDOMAIN" ]]; then
+                    echo "Error: Subdomain cannot be empty. Please run the script again and provide a valid subdomain."
+                    exit 1
+                fi
+
+                # Confirm revocation
+                whiptail --yesno "Are you sure you want to revoke the certificate for $SUBDOMAIN?" 10 60
+                if [[ $? -ne 0 ]]; then
+                    echo "Certificate revocation canceled."
+                    return
+                fi
+
+                # Revoke the certificate using certbot
+                CERT_PATH="/etc/letsencrypt/live/$SUBDOMAIN/fullchain.pem"
+                if [[ -f "$CERT_PATH" ]]; then
+                    echo "Revoking the certificate for $SUBDOMAIN..."
+                    sudo certbot revoke --cert-path "$CERT_PATH" --reason "unspecified"
+
+                    # Optionally delete the certificate files
+                    whiptail --yesno "Do you want to delete the certificate files for $SUBDOMAIN?" 10 60
+                    if [[ $? -eq 0 ]]; then
+                        sudo rm -rf "/etc/letsencrypt/live/$SUBDOMAIN"
+                        sudo rm -rf "/etc/letsencrypt/archive/$SUBDOMAIN"
+                        sudo rm -rf "/etc/letsencrypt/renewal/$SUBDOMAIN.conf"
+                        echo "Certificate files for $SUBDOMAIN deleted."
+                    else
+                        echo "Certificate files retained."
+                    fi
+
+                    # Delete renewal script and cron job
+                    RENEW_SCRIPT_PATH="/etc/letsencrypt/scripts/renew.sh"
+                    if [[ -f "$RENEW_SCRIPT_PATH" ]]; then
+                        echo "Deleting the renewal script..."
+                        sudo rm -f "$RENEW_SCRIPT_PATH"
+                    else
+                        echo "No renewal script found for $SUBDOMAIN."
+                    fi
+
+                    # Remove cron job for automatic renewal
+                    echo "Removing cron job for $SUBDOMAIN..."
+                    crontab -l | grep -v "$RENEW_SCRIPT_PATH" | crontab -
+                    echo "Cron job removed."
+
+                    echo "Certificate for $SUBDOMAIN revoked and cleanup completed."
+                else
+                    echo "Error: Certificate for $SUBDOMAIN not found."
+                fi
+            }   
+            ;;
+        "10")
             # Exit option
             exit 0
             ;;                
