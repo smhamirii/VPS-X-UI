@@ -178,7 +178,8 @@ while true; do
             fi
             ;;
         "4")
-            sudo apt install cron
+            # Install cron if not already installed and enable it
+            sudo apt install cron -y
             sudo systemctl enable cron
 
             # Prompt the user to enter the subdomain
@@ -186,63 +187,69 @@ while true; do
 
             # Validate that the subdomain is not empty
             if [[ -z "$SUBDOMAIN" ]]; then
-            echo "Error: Subdomain cannot be empty. Please run the script again and provide a valid subdomain."
-            exit 1
+                echo "Error: Subdomain cannot be empty. Please run the script again and provide a valid subdomain."
+                exit 1
             fi
 
-            # Directory to store certificate files
+            # Define directory to store certificate files
             CERT_DIR="/etc/ssl/$SUBDOMAIN"
+            echo "Certificate directory: $CERT_DIR"
 
-            # Install dependencies
-            echo "Updating packages and installing dependencies..."
+            # Install dependencies if not already installed
+            echo "Updating packages and installing necessary dependencies..."
             sudo apt update
             sudo apt install -y certbot nginx
 
-            # Stop any services using port 80 temporarily
+            # Stop any services using port 80 temporarily to allow Certbot to bind
             echo "Stopping web server temporarily to use port 80..."
-            sudo systemctl stop nginx   # Replace nginx with your web server if needed
+            sudo systemctl stop nginx
 
-            # Use the HTTP-01 challenge with Certbot's standalone server
+            # Use the HTTP-01 challenge with Certbot's standalone server to issue certificate
             echo "Issuing certificate for $SUBDOMAIN using HTTP-01 challenge..."
             sudo certbot certonly --standalone --preferred-challenges http \
-            --register-unsafely-without-email \
-            --agree-tos \
-            -d $SUBDOMAIN
+              --register-unsafely-without-email \
+              --agree-tos \
+              -d $SUBDOMAIN
 
             # Check if the certificate was issued successfully
             if [ $? -eq 0 ]; then
-            echo "Certificate issued successfully for $SUBDOMAIN!"
+                echo "Certificate issued successfully for $SUBDOMAIN!"
             else
-            echo "Error: Failed to issue certificate for $SUBDOMAIN."
-            exit 1
+                echo "Error: Failed to issue certificate for $SUBDOMAIN."
+                sudo systemctl start nginx   # Ensure the web server is restarted
+                exit 1
             fi
+
+            # Create SSL directory if it does not exist
+            sudo mkdir -p $CERT_DIR
 
             # Copy the certificates to the desired directory
             echo "Copying certificate and key to $CERT_DIR..."
-            sudo mkdir -p $CERT_DIR
             sudo cp /etc/letsencrypt/live/$SUBDOMAIN/fullchain.pem $CERT_DIR/fullchain.pem
             sudo cp /etc/letsencrypt/live/$SUBDOMAIN/privkey.pem $CERT_DIR/privkey.pem
 
-            # Restart the web server
+            # Restart the web server to apply the new certificates
             echo "Restarting web server..."
-            sudo systemctl start nginx   # Replace nginx with your web server if needed
+            sudo systemctl start nginx
 
-            # Create the renewal script with corrected EOF syntax
+            # Create the renewal script
             RENEW_SCRIPT_PATH="/etc/letsencrypt/scripts/renew.sh"
             echo "Creating renewal script at $RENEW_SCRIPT_PATH..."
             sudo mkdir -p /etc/letsencrypt/scripts
-            sudo bash -c "cat <<EOF > $RENEW_SCRIPT_PATH
-            #!/bin/bash
-            # Renew certificate for $SUBDOMAIN using HTTP-01 challenge
-            certbot renew --standalone --preferred-challenges http
 
-            # Copy the renewed certificate and key to the $CERT_DIR
-            cp /etc/letsencrypt/live/$SUBDOMAIN/fullchain.pem $CERT_DIR/fullchain.pem
-            cp /etc/letsencrypt/live/$SUBDOMAIN/privkey.pem $CERT_DIR/privkey.pem
+            # Create a renewal script with the correct EOF syntax
+            sudo bash -c "cat > $RENEW_SCRIPT_PATH << 'EOF'
+#!/bin/bash
+# Renew certificate for $SUBDOMAIN using HTTP-01 challenge
+certbot renew --standalone --preferred-challenges http
 
-            # Reload web server to apply new certificates
-            sudo systemctl reload nginx   # Replace nginx with your web server if needed
-            EOF"
+# Copy the renewed certificate and key to the $CERT_DIR
+sudo cp /etc/letsencrypt/live/$SUBDOMAIN/fullchain.pem $CERT_DIR/fullchain.pem
+sudo cp /etc/letsencrypt/live/$SUBDOMAIN/privkey.pem $CERT_DIR/privkey.pem
+
+# Reload web server to apply new certificates
+sudo systemctl reload nginx   # Replace nginx with your web server if needed
+EOF"
 
             # Make the renewal script executable
             sudo chmod +x $RENEW_SCRIPT_PATH
@@ -251,27 +258,43 @@ while true; do
             echo "Setting up cron job for automatic renewal..."
             (crontab -l 2>/dev/null; echo "0 0 * * * $RENEW_SCRIPT_PATH > /dev/null 2>&1") | crontab -
 
-            echo "SSL certificate setup complete for $SUBDOMAIN!"
-
+            echo "SSL certificate setup and automatic renewal complete for $SUBDOMAIN!"
             ;;
+
         "5")
-            # Function to manage Cloudflare DNS 
+            # Function to display error messages and exit the script
+            error_exit() {
+                echo "$1" 1>&2
+                exit 1
+            }
+
+            # Function to check if required commands are installed
+            check_dependencies() {
+                for cmd in curl jq; do
+                    if ! command -v $cmd &>/dev/null; then
+                        error_exit "$cmd is required but not installed. Install it using: sudo apt install $cmd"
+                    fi
+                done
+            }
+
+            # Function to manage Cloudflare DNS
             cloudflare_dns_management() {
-                # Check if jq is installed, which is used to parse JSON
-                if ! command -v jq &> /dev/null; then
-                    error_exit "jq is required but not installed. Install it using: sudo apt install jq"
-                fi
+                # Check dependencies first
+                check_dependencies
 
                 # Prompt for Cloudflare API token, domain, and subdomain
                 read -p "Enter your Cloudflare API token: " CF_API_TOKEN
                 read -p "Enter your domain (example.com): " DOMAIN
                 read -p "Enter your custom subdomain (e.g., api, blog): " SUBDOMAIN
 
+                # Validate inputs
+                if [[ -z "$CF_API_TOKEN" || -z "$DOMAIN" || -z "$SUBDOMAIN" ]]; then
+                    error_exit "Cloudflare API token, domain, and subdomain must be provided."
+                fi
+
                 # Get the public IP of the machine (server IP)
                 IP=$(curl -s https://api.ipify.org)
-
-                # Exit if IP is not retrieved
-                if [ -z "$IP" ]; then
+                if [[ -z "$IP" ]]; then
                     error_exit "Failed to retrieve your public IP address."
                 fi
 
@@ -283,7 +306,7 @@ while true; do
                     -H "Content-Type: application/json" | jq -r '.result[0].id')
 
                 # Exit if no zone ID is found
-                if [ -z "$ZONE_ID" ] || [ "$ZONE_ID" == "null" ]; then
+                if [[ -z "$ZONE_ID" || "$ZONE_ID" == "null" ]]; then
                     error_exit "Failed to retrieve the zone ID for $DOMAIN. Please check the domain and API token."
                 fi
 
@@ -292,16 +315,15 @@ while true; do
                     -H "Authorization: Bearer $CF_API_TOKEN" \
                     -H "Content-Type: application/json" | jq -r '.result[0].id')
 
-                # If the DNS record doesn't exist, create a new one
-                if [ -z "$RECORD_ID" ] || [ "$RECORD_ID" == "null" ]; then
-                    echo "No DNS record found for $SUBDOMAIN.$DOMAIN. Creating a new DNS record."
-
+                if [[ -z "$RECORD_ID" || "$RECORD_ID" == "null" ]]; then
+                    # If no record exists, create a new one
+                    echo "No DNS record found for $SUBDOMAIN.$DOMAIN. Creating a new DNS record..."
                     CREATE_RESPONSE=$(curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" \
                         -H "Authorization: Bearer $CF_API_TOKEN" \
                         -H "Content-Type: application/json" \
                         --data '{"type":"A","name":"'"$SUBDOMAIN.$DOMAIN"'","content":"'"$IP"'","ttl":120,"proxied":false}')
 
-                    # Check if the DNS record creation was successful
+                    # Check if DNS record creation was successful
                     if echo "$CREATE_RESPONSE" | jq -r '.success' | grep -q "true"; then
                         echo "Successfully created a new DNS record for $SUBDOMAIN.$DOMAIN with IP $IP."
                     else
@@ -309,8 +331,7 @@ while true; do
                     fi
                 else
                     # If the DNS record exists, update the existing one
-                    echo "DNS record for $SUBDOMAIN.$DOMAIN exists. Updating the IP address."
-
+                    echo "DNS record for $SUBDOMAIN.$DOMAIN exists. Updating the IP address to $IP..."
                     UPDATE_RESPONSE=$(curl -s -X PUT "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$RECORD_ID" \
                         -H "Authorization: Bearer $CF_API_TOKEN" \
                         -H "Content-Type: application/json" \
@@ -324,8 +345,8 @@ while true; do
                     fi
                 fi
             }
-        
-            # Cloudflare DNS Management (from Project 2)
+
+            # Run the Cloudflare DNS management function
             cloudflare_dns_management
             ;;
         "6")
