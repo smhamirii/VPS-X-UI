@@ -205,39 +205,39 @@ EOL
             sudo systemctl enable cron
 
             # Prompt the user to enter the subdomain
-            read -p "Please enter the subdomain for which you want to create an SSL certificate (e.g., subdomain.example.com): " SUBDOMAIN
+            SUBDOMAIN=$(whiptail --inputbox "Please enter the subdomain for which you want to create an SSL certificate (e.g., subdomain.example.com):" 10 60 3>&1 1>&2 2>&3)
 
             # Validate that the subdomain is not empty
             if [[ -z "$SUBDOMAIN" ]]; then
-                echo "Error: Subdomain cannot be empty. Please run the script again and provide a valid subdomain."
+                whiptail --msgbox "Error: Subdomain cannot be empty. Please run the script again and provide a valid subdomain." 10 60
                 exit 1
             fi
 
             # Define directory to store certificate files
             CERT_DIR="/etc/ssl/$SUBDOMAIN"
-            echo "Certificate directory: $CERT_DIR"
+            whiptail --msgbox "Certificate directory: $CERT_DIR" 10 60
 
             # Install dependencies if not already installed
-            echo "Updating packages and installing necessary dependencies..."
+            whiptail --msgbox "Updating packages and installing necessary dependencies..." 10 60
             sudo apt update
             sudo apt install -y certbot nginx
 
             # Stop any services using port 80 temporarily to allow Certbot to bind
-            echo "Stopping web server temporarily to use port 80..."
+            whiptail --msgbox "Stopping web server temporarily to use port 80..." 10 60
             sudo systemctl stop nginx
 
             # Use the HTTP-01 challenge with Certbot's standalone server to issue certificate
-            echo "Issuing certificate for $SUBDOMAIN using HTTP-01 challenge..."
+            whiptail --msgbox "Issuing certificate for $SUBDOMAIN using HTTP-01 challenge..." 10 60
             sudo certbot certonly --standalone --preferred-challenges http \
-              --register-unsafely-without-email \
-              --agree-tos \
-              -d $SUBDOMAIN
+            --register-unsafely-without-email \
+            --agree-tos \
+            -d $SUBDOMAIN
 
             # Check if the certificate was issued successfully
             if [ $? -eq 0 ]; then
-                echo "Certificate issued successfully for $SUBDOMAIN!"
+                whiptail --msgbox "Certificate issued successfully for $SUBDOMAIN!" 10 60
             else
-                echo "Error: Failed to issue certificate for $SUBDOMAIN."
+                whiptail --msgbox "Error: Failed to issue certificate for $SUBDOMAIN." 10 60
                 sudo systemctl start nginx   # Ensure the web server is restarted
                 exit 1
             fi
@@ -246,17 +246,17 @@ EOL
             sudo mkdir -p $CERT_DIR
 
             # Copy the certificates to the desired directory
-            echo "Copying certificate and key to $CERT_DIR..."
+            whiptail --msgbox "Copying certificate and key to $CERT_DIR..." 10 60
             sudo cp /etc/letsencrypt/live/$SUBDOMAIN/fullchain.pem $CERT_DIR/fullchain.pem
             sudo cp /etc/letsencrypt/live/$SUBDOMAIN/privkey.pem $CERT_DIR/privkey.pem
 
             # Restart the web server to apply the new certificates
-            echo "Restarting web server..."
+            whiptail --msgbox "Restarting web server..." 10 60
             sudo systemctl start nginx
 
             # Create the renewal script
             RENEW_SCRIPT_PATH="/etc/letsencrypt/scripts/renew.sh"
-            echo "Creating renewal script at $RENEW_SCRIPT_PATH..."
+            whiptail --msgbox "Creating renewal script at $RENEW_SCRIPT_PATH..." 10 60
             sudo mkdir -p /etc/letsencrypt/scripts
 
             # Create a renewal script with the correct EOF syntax
@@ -277,16 +277,15 @@ EOF"
             sudo chmod +x $RENEW_SCRIPT_PATH
 
             # Create a cron job for automatic renewal
-            echo "Setting up cron job for automatic renewal..."
+            whiptail --msgbox "Setting up cron job for automatic renewal..." 10 60
             (crontab -l 2>/dev/null; echo "0 0 * * * $RENEW_SCRIPT_PATH > /dev/null 2>&1") | crontab -
 
-            echo "SSL certificate setup and automatic renewal complete for $SUBDOMAIN!"
+            whiptail --msgbox "SSL certificate setup and automatic renewal complete for $SUBDOMAIN!" 10 60
             ;;
-
         "5")
             # Function to display error messages and exit the script
             error_exit() {
-                echo "$1" 1>&2
+                whiptail --msgbox "$1" 10 60 1>&2
                 exit 1
             }
 
@@ -305,9 +304,9 @@ EOF"
                 check_dependencies
 
                 # Prompt for Cloudflare API token, domain, and subdomain
-                read -p "Enter your Cloudflare API token: " CF_API_TOKEN
-                read -p "Enter your domain (example.com): " DOMAIN
-                read -p "Enter your custom subdomain (e.g., api, blog): " SUBDOMAIN
+                CF_API_TOKEN=$(whiptail --inputbox "Enter your Cloudflare API token:" 10 60 3>&1 1>&2 2>&3)
+                DOMAIN=$(whiptail --inputbox "Enter your domain (example.com):" 10 60 3>&1 1>&2 2>&3)
+                SUBDOMAIN=$(whiptail --inputbox "Enter your custom subdomain (e.g., api, blog):" 10 60 3>&1 1>&2 2>&3)
 
                 # Validate inputs
                 if [[ -z "$CF_API_TOKEN" || -z "$DOMAIN" || -z "$SUBDOMAIN" ]]; then
@@ -320,7 +319,7 @@ EOF"
                     error_exit "Failed to retrieve your public IP address."
                 fi
 
-                echo "Your current public IP address is: $IP"
+                whiptail --msgbox "Your current public IP address is: $IP" 10 60
 
                 # Fetch the zone ID for the domain
                 ZONE_ID=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones?name=$DOMAIN" \
@@ -339,7 +338,7 @@ EOF"
 
                 if [[ -z "$RECORD_ID" || "$RECORD_ID" == "null" ]]; then
                     # If no record exists, create a new one
-                    echo "No DNS record found for $SUBDOMAIN.$DOMAIN. Creating a new DNS record..."
+                    whiptail --msgbox "No DNS record found for $SUBDOMAIN.$DOMAIN. Creating a new DNS record..." 10 60
                     CREATE_RESPONSE=$(curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" \
                         -H "Authorization: Bearer $CF_API_TOKEN" \
                         -H "Content-Type: application/json" \
@@ -347,13 +346,13 @@ EOF"
 
                     # Check if DNS record creation was successful
                     if echo "$CREATE_RESPONSE" | jq -r '.success' | grep -q "true"; then
-                        echo "Successfully created a new DNS record for $SUBDOMAIN.$DOMAIN with IP $IP."
+                        whiptail --msgbox "Successfully created a new DNS record for $SUBDOMAIN.$DOMAIN with IP $IP." 10 60
                     else
                         error_exit "Failed to create the DNS record. Response: $CREATE_RESPONSE"
                     fi
                 else
                     # If the DNS record exists, update the existing one
-                    echo "DNS record for $SUBDOMAIN.$DOMAIN exists. Updating the IP address to $IP..."
+                    whiptail --msgbox "DNS record for $SUBDOMAIN.$DOMAIN exists. Updating the IP address to $IP..." 10 60
                     UPDATE_RESPONSE=$(curl -s -X PUT "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$RECORD_ID" \
                         -H "Authorization: Bearer $CF_API_TOKEN" \
                         -H "Content-Type: application/json" \
@@ -361,7 +360,7 @@ EOF"
 
                     # Check if the update was successful
                     if echo "$UPDATE_RESPONSE" | jq -r '.success' | grep -q "true"; then
-                        echo "Successfully updated the IP address for $SUBDOMAIN.$DOMAIN to $IP."
+                        whiptail --msgbox "Successfully updated the IP address for $SUBDOMAIN.$DOMAIN to $IP." 10 60
                     else
                         error_exit "Failed to update the DNS record. Response: $UPDATE_RESPONSE"
                     fi
@@ -417,65 +416,66 @@ EOF"
             # Function to revoke a certificate for a specific subdomain
             revoke_certificate() {
                 # Prompt for subdomain
-                read -p "Please enter the subdomain for which you want to revoke the SSL certificate (e.g., a1.example.com): " SUBDOMAIN
+                SUBDOMAIN=$(whiptail --inputbox "Please enter the subdomain for which you want to revoke the SSL certificate (e.g., a1.example.com):" 10 60 3>&1 1>&2 2>&3)
 
                 # Validate that the subdomain is not empty
                 if [[ -z "$SUBDOMAIN" ]]; then
-                    echo "Error: Subdomain cannot be empty. Please run the script again and provide a valid subdomain."
+                    whiptail --msgbox "Error: Subdomain cannot be empty. Please run the script again and provide a valid subdomain." 8 60
                     exit 1
                 fi
 
                 # Confirm revocation
-                read -p "Are you sure you want to revoke the certificate for $SUBDOMAIN? (yes/no): " CONFIRM
-                if [[ "$CONFIRM" != "yes" ]]; then
-                    echo "Revocation process aborted."
+                CONFIRM=$(whiptail --yesno "Are you sure you want to revoke the certificate for $SUBDOMAIN?" 10 60)
+
+                if [[ $? -ne 0 ]]; then
+                    whiptail --msgbox "Revocation process aborted." 8 45
                     exit 0
                 fi
 
                 # Revoke the certificate using certbot
                 CERT_PATH="/etc/letsencrypt/live/$SUBDOMAIN/fullchain.pem"
                 if [[ -f "$CERT_PATH" ]]; then
-                    echo "Revoking the certificate for $SUBDOMAIN..."
+                    whiptail --msgbox "Revoking the certificate for $SUBDOMAIN..." 8 60
                     sudo certbot revoke --cert-path "$CERT_PATH" --reason "unspecified"
 
                     # Optionally delete the certificate files
-                    read -p "Do you want to delete the certificate files for $SUBDOMAIN? (yes/no): " DELETE_CERT_FILES
-                    if [[ "$DELETE_CERT_FILES" == "yes" ]]; then
+                    DELETE_CERT_FILES=$(whiptail --yesno "Do you want to delete the certificate files for $SUBDOMAIN?" 10 60)
+                    if [[ $? -eq 0 ]]; then
                         sudo rm -rf "/etc/letsencrypt/live/$SUBDOMAIN"
                         sudo rm -rf "/etc/letsencrypt/archive/$SUBDOMAIN"
                         sudo rm -rf "/etc/letsencrypt/renewal/$SUBDOMAIN.conf"
-                        echo "Certificate files for $SUBDOMAIN deleted."
+                        whiptail --msgbox "Certificate files for $SUBDOMAIN deleted." 8 60
                     else
-                        echo "Certificate files retained."
+                        whiptail --msgbox "Certificate files retained." 8 45
                     fi
 
                     # Remove the specific cron job for this subdomain
-                    echo "Removing cron job for $SUBDOMAIN..."
-                    (crontab -l 2>/dev/null | grep -v "$SUBDOMAIN") | crontab -
-                    echo "Cron job for $SUBDOMAIN removed."
+                    whiptail --msgbox "Removing cron job for $SUBDOMAIN..." 8 60
+                    (crontab -l 2>/dev/null | grep -v -F "$SUBDOMAIN") | crontab -
+                    whiptail --msgbox "Cron job for $SUBDOMAIN removed." 8 60
 
                     # Remove the renewal section for the specific subdomain from the renewal script
                     RENEW_SCRIPT_PATH="/etc/letsencrypt/scripts/renew.sh"
                     if [[ -f "$RENEW_SCRIPT_PATH" ]]; then
-                        echo "Removing renewal section for $SUBDOMAIN from the renewal script..."
-                        
+                        whiptail --msgbox "Removing renewal section for $SUBDOMAIN from the renewal script..." 8 60
+
                         # Using sed to remove the block of lines related to the subdomain
                         sudo sed -i "/# Renew certificate for $SUBDOMAIN/,/sudo systemctl reload nginx/d" "$RENEW_SCRIPT_PATH"
-                        
-                        echo "Renewal section for $SUBDOMAIN removed from the renewal script."
+
+                        whiptail --msgbox "Renewal section for $SUBDOMAIN removed from the renewal script." 8 60
                     else
-                        echo "Renewal script not found at $RENEW_SCRIPT_PATH."
+                        whiptail --msgbox "Renewal script not found at $RENEW_SCRIPT_PATH." 8 60
                     fi
 
-                    echo "Certificate for $SUBDOMAIN revoked and cleanup completed."
+                    whiptail --msgbox "Certificate for $SUBDOMAIN revoked and cleanup completed." 8 60
                 else
-                    echo "Error: Certificate for $SUBDOMAIN not found."
+                    whiptail --msgbox "Error: Certificate for $SUBDOMAIN not found." 8 60
                 fi
             }
 
             # Call the function to revoke the certificate
             revoke_certificate
-            ;;
+
         "10")
             # Get the server's own IP address
             my_ip=$(hostname -I | awk '{print $1}')
