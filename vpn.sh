@@ -196,7 +196,7 @@ while true; do
             # Install dependencies
             echo "Updating packages and installing dependencies..."
             sudo apt update
-            sudo apt install -y certbot
+            sudo apt install -y certbot nginx
 
             # Stop any services using port 80 temporarily
             echo "Stopping web server temporarily to use port 80..."
@@ -227,18 +227,18 @@ while true; do
             echo "Restarting web server..."
             sudo systemctl start nginx   # Replace nginx with your web server if needed
 
-            # Create the renewal script
+            # Create the renewal script with corrected EOF syntax
             RENEW_SCRIPT_PATH="/etc/letsencrypt/scripts/renew.sh"
             echo "Creating renewal script at $RENEW_SCRIPT_PATH..."
             sudo mkdir -p /etc/letsencrypt/scripts
-            sudo bash -c "cat << 'EOF' > $RENEW_SCRIPT_PATH
+            sudo bash -c "cat <<EOF > $RENEW_SCRIPT_PATH
             #!/bin/bash
             # Renew certificate for $SUBDOMAIN using HTTP-01 challenge
             certbot renew --standalone --preferred-challenges http
 
-            # Copy the renewed certificate and key to $CERT_DIR
-            sudo cp /etc/letsencrypt/live/$SUBDOMAIN/fullchain.pem $CERT_DIR/fullchain.pem
-            sudo cp /etc/letsencrypt/live/$SUBDOMAIN/privkey.pem $CERT_DIR/privkey.pem
+            # Copy the renewed certificate and key to the $CERT_DIR
+            cp /etc/letsencrypt/live/$SUBDOMAIN/fullchain.pem $CERT_DIR/fullchain.pem
+            cp /etc/letsencrypt/live/$SUBDOMAIN/privkey.pem $CERT_DIR/privkey.pem
 
             # Reload web server to apply new certificates
             sudo systemctl reload nginx   # Replace nginx with your web server if needed
@@ -252,6 +252,7 @@ while true; do
             (crontab -l 2>/dev/null; echo "0 0 * * * $RENEW_SCRIPT_PATH > /dev/null 2>&1") | crontab -
 
             echo "SSL certificate setup complete for $SUBDOMAIN!"
+
             ;;
         "5")
             # Function to manage Cloudflare DNS 
