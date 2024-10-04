@@ -70,6 +70,12 @@ while true; do
             sudo systemd-resolve --flush-caches
             sudo systemctl restart systemd-resolved
 
+            # BBR setup
+            sudo modprobe tcp_bbr
+            echo "net.core.default_qdisc=fq" | sudo tee -a /etc/sysctl.conf
+            echo "net.ipv4.tcp_congestion_control=bbr" | sudo tee -a /etc/sysctl.conf
+            sudo sysctl -p
+
             #upgrade
             sudo apt upgrade -y
 
@@ -130,15 +136,15 @@ while true; do
                 sudo rm /etc/resolv.conf
                 sudo touch /etc/resolv.conf
 
-                #change dns
+                # change dns
                 echo "nameserver 8.8.8.8" | sudo tee -a /etc/resolv.conf
                 echo "nameserver 4.2.2.4" | sudo tee -a /etc/resolv.conf
                 
-                #reload dns
+                # reload dns
                 sudo systemd-resolve --flush-caches
                 sudo systemctl restart systemd-resolved
 
-                #options
+                # options
                 var12="1"
                 var13="no"
                 var14="5.4"
@@ -146,7 +152,7 @@ while true; do
                 var17="no"
                 var15=$(whiptail --inputbox "Enter the SNI Domain:" 8 39 3>&1 1>&2 2>&3)
                 
-                #script
+                # script
                 echo -e "$var12\n$var13\n$var14\n$var6\n$var15\n$var16\n$var17" | bash <(curl -Ls https://raw.githubusercontent.com/radkesvat/ReverseTlsTunnel/master/scripts/RtTunnel.sh)
 
             elif [[ "$var6" == "2" ]]; then
@@ -156,15 +162,15 @@ while true; do
                 sudo rm /etc/resolv.conf
                 sudo touch /etc/resolv.conf
 
-                #change dns
+                # change dns
                 echo "nameserver 1.1.1.1" | sudo tee -a /etc/resolv.conf
                 echo "nameserver 1.0.0.1" | sudo tee -a /etc/resolv.conf
                 
-                #reload dns
+                # reload dns
                 sudo systemd-resolve --flush-caches
                 sudo systemctl restart systemd-resolved
 
-                #options
+                # options
                 var12="1"
                 var13="no"
                 var14="5.4"
@@ -173,7 +179,7 @@ while true; do
                 var15=$(whiptail --inputbox "Enter the SNI Domain:" 8 39 3>&1 1>&2 2>&3)
                 var18=$(whiptail --inputbox "Enter the Iran IP:" 8 39 3>&1 1>&2 2>&3)
                 
-                #script
+                # script
                 echo -e "$var12\n$var13\n$var14\n$var6\n$var15\n$var18\n$var16" | bash <(curl -Ls https://raw.githubusercontent.com/radkesvat/ReverseTlsTunnel/master/scripts/RtTunnel.sh)
 
             else
@@ -364,10 +370,10 @@ EOF"
             echo -e "$var11" | bash <(curl -Ls https://raw.githubusercontent.com/radkesvat/ReverseTlsTunnel/master/scripts/RtTunnel.sh)
             ;;
         "8")
-            # Function to revoke a certificate for a subdomain
+            # Function to revoke a certificate for a specific subdomain
             revoke_certificate() {
                 # Prompt for subdomain
-                read -p "Please enter the subdomain for which you want to revoke the SSL certificate (e.g., subdomain.example.com): " SUBDOMAIN
+                read -p "Please enter the subdomain for which you want to revoke the SSL certificate (e.g., a1.example.com): " SUBDOMAIN
 
                 # Validate that the subdomain is not empty
                 if [[ -z "$SUBDOMAIN" ]]; then
@@ -376,10 +382,10 @@ EOF"
                 fi
 
                 # Confirm revocation
-                whiptail --yesno "Are you sure you want to revoke the certificate for $SUBDOMAIN?" 10 60
-                if [[ $? -ne 0 ]]; then
-                    echo "Certificate revocation canceled."
-                    return
+                read -p "Are you sure you want to revoke the certificate for $SUBDOMAIN? (yes/no): " CONFIRM
+                if [[ "$CONFIRM" != "yes" ]]; then
+                    echo "Revocation process aborted."
+                    exit 0
                 fi
 
                 # Revoke the certificate using certbot
@@ -389,8 +395,8 @@ EOF"
                     sudo certbot revoke --cert-path "$CERT_PATH" --reason "unspecified"
 
                     # Optionally delete the certificate files
-                    whiptail --yesno "Do you want to delete the certificate files for $SUBDOMAIN?" 10 60
-                    if [[ $? -eq 0 ]]; then
+                    read -p "Do you want to delete the certificate files for $SUBDOMAIN? (yes/no): " DELETE_CERT_FILES
+                    if [[ "$DELETE_CERT_FILES" == "yes" ]]; then
                         sudo rm -rf "/etc/letsencrypt/live/$SUBDOMAIN"
                         sudo rm -rf "/etc/letsencrypt/archive/$SUBDOMAIN"
                         sudo rm -rf "/etc/letsencrypt/renewal/$SUBDOMAIN.conf"
@@ -399,62 +405,75 @@ EOF"
                         echo "Certificate files retained."
                     fi
 
-                    # Delete renewal script and cron job
+                    # Remove the specific cron job for this subdomain
+                    echo "Removing cron job for $SUBDOMAIN..."
+                    (crontab -l 2>/dev/null | grep -v "$SUBDOMAIN") | crontab -
+                    echo "Cron job for $SUBDOMAIN removed."
+
+                    # Remove the renewal section for the specific subdomain from the renewal script
                     RENEW_SCRIPT_PATH="/etc/letsencrypt/scripts/renew.sh"
                     if [[ -f "$RENEW_SCRIPT_PATH" ]]; then
-                        echo "Deleting the renewal script..."
-                        sudo rm -f "$RENEW_SCRIPT_PATH"
+                        echo "Removing renewal section for $SUBDOMAIN from the renewal script..."
+                        
+                        # Using sed to remove the block of lines related to the subdomain
+                        sudo sed -i "/# Renew certificate for $SUBDOMAIN/,/sudo systemctl reload nginx/d" "$RENEW_SCRIPT_PATH"
+                        
+                        echo "Renewal section for $SUBDOMAIN removed from the renewal script."
                     else
-                        echo "No renewal script found for $SUBDOMAIN."
+                        echo "Renewal script not found at $RENEW_SCRIPT_PATH."
                     fi
-
-                    # Remove cron job for automatic renewal
-                    echo "Removing cron job for $SUBDOMAIN..."
-                    crontab -l | grep -v "$RENEW_SCRIPT_PATH" | crontab -
-                    echo "Cron job removed."
 
                     echo "Certificate for $SUBDOMAIN revoked and cleanup completed."
                 else
                     echo "Error: Certificate for $SUBDOMAIN not found."
                 fi
             }
-            # revoke_certificate
+
+            # Call the function to revoke the certificate
             revoke_certificate
             ;;
         "9")
-            # Connectivity check
+            # Get the server's own IP address
             my_ip=$(hostname -I | awk '{print $1}')
             [[ -z "$my_ip" ]] && my_ip="Unknown"
-            
-            # Get server location
+
+            # Get server location from the user
             server_location=$(whiptail --title "Server Location" --menu "Is this server located in Iran or a foreign location?" 15 60 2 \
             "Iran" "Iran server" \
             "Foreign" "Foreign server" 3>&1 1>&2 2>&3)
-            
+
+            # Prompt user to input the IP of another server
             other_server_ip=$(whiptail --inputbox "Enter the IP address of another server (Iran or Foreign):" 10 60 3>&1 1>&2 2>&3)
-            
-            # Function to perform a connectivity check with ping (from project 2)
+
+            # Function to perform connectivity check with ping and return status + ping time
             check_connectivity() {
-                if ping -c 1 -W 1 "$1" &> /dev/null; then
-                    echo "Connected"
+                # Run ping and extract the round-trip time (rtt)
+                ping_output=$(ping -c 1 -W 1 "$1" 2>&1)
+
+                # Check if ping was successful
+                if echo "$ping_output" | grep -q "1 received"; then
+                    # Extract and display the round-trip time from the ping output
+                    ping_time=$(echo "$ping_output" | grep "time=" | awk -F'time=' '{print $2}' | awk '{print $1}')
+                    echo "Connected (Ping: ${ping_time} ms)"
                 else
                     echo "Not Connected"
                 fi
             }
-            
+
             # Perform connectivity checks
             tamin_status=$(check_connectivity "tamin.ir")
             google_status=$(check_connectivity "google.com")
             my_ip_status=$(check_connectivity "$my_ip")
             other_server_status=$(check_connectivity "$other_server_ip")
-            
-            # Display results
+
+            # Display the results
             whiptail --title "Connectivity Check Results" --msgbox "Connectivity Check Results:\n\n\
             Tamin.ir: $tamin_status\n\
             Google.com: $google_status\n\
             My IP ($my_ip): $my_ip_status\n\
             Other Server IP ($other_server_ip): $other_server_status\n\n\
-            Current Server Location: $server_location" 20 70        
+            Current Server Location: $server_location" 20 70
+
             ;;
         "10")
             # Exit option
