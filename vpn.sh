@@ -13,8 +13,7 @@ sudo apt clean
 sudo apt update
 
 # install necessary packages
-apt install whiptail -y
-sudo apt install curl wget jq -y
+sudo apt install wget whiptail lsof iptables unzip gcc git curl tar jq -y
 
 # Disable IPv6
 echo "127.0.0.1 $(hostname)" >> /etc/hosts
@@ -31,17 +30,18 @@ sudo sysctl -p
 clear
 
 while true; do
-    var7=$(whiptail --title "SAMIR VPN Creator" --menu "Welcome to Samir VPN Creator, choose an option:" 20 70 10 \
+    var7=$(whiptail --title "SAMIR VPN Creator" --menu "Welcome to Samir VPN Creator, choose an option:" 20 70 11 \
         "1" "Server Upgrade" \
         "2" "Install X-UI Panel" \
         "3" "Install Reverse Tunnel" \
         "4" "Certificate for Subdomain SSL" \
         "5" "Cloudflare DNS Management" \
         "6" "Unistall X-UI Panel" \
-        "7" "Unistall Reverse Tunnel" \
-        "8" "Revoke Certificate SSL" \
-        "9" "Check Internet Connection" \
-        "10" "Exit" 3>&1 1>&2 2>&3)
+        "7" "Tunnel Status" \
+        "8" "Unistall Reverse Tunnel" \
+        "9" "Revoke Certificate SSL" \
+        "10" "Check Internet Connection" \
+        "11" "Exit" 3>&1 1>&2 2>&3)
 
     case "$var7" in
         "1")
@@ -55,7 +55,6 @@ while true; do
                 sudo touch /etc/resolv.conf
                 echo "nameserver 8.8.8.8" | sudo tee -a /etc/resolv.conf
                 echo "nameserver 4.2.2.4" | sudo tee -a /etc/resolv.conf           
-
             elif [[ "$var6" == "2" ]]; then
                 sudo rm /etc/resolv.conf
                 sudo touch /etc/resolv.conf
@@ -119,20 +118,6 @@ while true; do
             echo -e "$var1\n$var2\n$var3\n$var4" | bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh)
             ;;
         "3")
-
-            check_dependencies() {
-                detect_distribution
-
-                local dependencies=("wget" "lsof" "iptables" "unzip" "gcc" "git" "curl" "tar")
-                
-                for dep in "${dependencies[@]}"; do
-                    if ! command -v "${dep}" &> /dev/null; then
-                        whiptail --msgbox "${dep} is not installed. Installing..." 8 45
-                        sudo "${package_manager}" install "${dep}" -y
-                    fi
-                done
-            }
-
             # Check installed service
             check_installed() {
                 if [ -f "/etc/systemd/system/tunnel.service" ]; then
@@ -184,7 +169,6 @@ while true; do
 
             # Function to handle installation
             installtunnel() {
-                check_dependencies
                 check_installed
                 install_rtt_custom
 
@@ -396,8 +380,20 @@ EOF"
             echo -e "$var31\n$var32" | x-ui
             ;;
         "7")
+            check_tunnel_status() {
+            # Check the status of the tunnel service
+            if sudo systemctl is-active --quiet tunnel.service; then
+                echo  "Tunnel is Active"
+            else
+                echo  "Tunnel is Deactive"
+            fi
+            }
+            
+            check_tunnel_status
+            ;;
+        "8")
             # unistall tunnel
-            uninstalltunnel() {
+            unistalltunnel() {
                 # Check if the service is installed
                 if [ ! -f "/etc/systemd/system/tunnel.service" ]; then
                     echo "The service is not installed."
@@ -417,9 +413,9 @@ EOF"
                 echo "Uninstallation completed successfully."
             }
             
-            uninstalltunnel
+            unistalltunnel
             ;;
-        "8")
+        "9")
             # Function to revoke a certificate for a specific subdomain
             revoke_certificate() {
                 # Prompt for subdomain
@@ -482,7 +478,7 @@ EOF"
             # Call the function to revoke the certificate
             revoke_certificate
             ;;
-        "9")
+        "10")
             # Get the server's own IP address
             my_ip=$(hostname -I | awk '{print $1}')
             [[ -z "$my_ip" ]] && my_ip="Unknown"
@@ -525,12 +521,12 @@ EOF"
             Current Server Location: $server_location" 20 70
 
             ;;
-        "10")
+        "11")
             # Exit option
             exit 0
             ;;                
         *)
-            whiptail --msgbox "Invalid option selected." 10 45
+            whiptail --msgbox "Invalid option selected." 11 45
             ;;
     esac
 done   
