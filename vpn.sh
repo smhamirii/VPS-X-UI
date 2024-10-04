@@ -364,41 +364,6 @@ EOF"
             echo -e "$var11" | bash <(curl -Ls https://raw.githubusercontent.com/radkesvat/ReverseTlsTunnel/master/scripts/RtTunnel.sh)
             ;;
         "8")
-            # Connectivity check
-            my_ip=$(hostname -I | awk '{print $1}')
-            [[ -z "$my_ip" ]] && my_ip="Unknown"
-            
-            # Get server location
-            server_location=$(whiptail --title "Server Location" --menu "Is this server located in Iran or a foreign location?" 15 60 2 \
-            "Iran" "Iran server" \
-            "Foreign" "Foreign server" 3>&1 1>&2 2>&3)
-            
-            other_server_ip=$(whiptail --inputbox "Enter the IP address of another server (Iran or Foreign):" 10 60 3>&1 1>&2 2>&3)
-            
-            # Function to perform a connectivity check with ping (from project 2)
-            check_connectivity() {
-                if ping -c 1 -W 1 "$1" &> /dev/null; then
-                    echo "Connected"
-                else
-                    echo "Not Connected"
-                fi
-            }
-            
-            # Perform connectivity checks
-            tamin_status=$(check_connectivity "tamin.ir")
-            google_status=$(check_connectivity "google.com")
-            my_ip_status=$(check_connectivity "$my_ip")
-            other_server_status=$(check_connectivity "$other_server_ip")
-            
-            # Display results
-            whiptail --title "Connectivity Check Results" --msgbox "Connectivity Check Results:\n\n\
-            Tamin.ir: $tamin_status\n\
-            Google.com: $google_status\n\
-            My IP ($my_ip): $my_ip_status\n\
-            Other Server IP ($other_server_ip): $other_server_status\n\n\
-            Current Server Location: $server_location" 20 70        
-            ;;
-        "9")
             # Function to revoke a certificate for a subdomain
             revoke_certificate() {
                 # Prompt for subdomain
@@ -452,7 +417,44 @@ EOF"
                 else
                     echo "Error: Certificate for $SUBDOMAIN not found."
                 fi
-            }   
+            }
+            # revoke_certificate
+            revoke_certificate
+            ;;
+        "9")
+            # Connectivity check
+            my_ip=$(hostname -I | awk '{print $1}')
+            [[ -z "$my_ip" ]] && my_ip="Unknown"
+            
+            # Get server location
+            server_location=$(whiptail --title "Server Location" --menu "Is this server located in Iran or a foreign location?" 15 60 2 \
+            "Iran" "Iran server" \
+            "Foreign" "Foreign server" 3>&1 1>&2 2>&3)
+            
+            other_server_ip=$(whiptail --inputbox "Enter the IP address of another server (Iran or Foreign):" 10 60 3>&1 1>&2 2>&3)
+            
+            # Function to perform a connectivity check with ping (from project 2)
+            check_connectivity() {
+                if ping -c 1 -W 1 "$1" &> /dev/null; then
+                    echo "Connected"
+                else
+                    echo "Not Connected"
+                fi
+            }
+            
+            # Perform connectivity checks
+            tamin_status=$(check_connectivity "tamin.ir")
+            google_status=$(check_connectivity "google.com")
+            my_ip_status=$(check_connectivity "$my_ip")
+            other_server_status=$(check_connectivity "$other_server_ip")
+            
+            # Display results
+            whiptail --title "Connectivity Check Results" --msgbox "Connectivity Check Results:\n\n\
+            Tamin.ir: $tamin_status\n\
+            Google.com: $google_status\n\
+            My IP ($my_ip): $my_ip_status\n\
+            Other Server IP ($other_server_ip): $other_server_status\n\n\
+            Current Server Location: $server_location" 20 70        
             ;;
         "10")
             # Exit option
