@@ -11,6 +11,8 @@ sudo killall apt apt-get
 sudo apt --fix-broken install
 sudo apt clean
 sudo dpkg --configure -a
+
+# main update
 sudo apt update
 
 # install necessary packages
@@ -35,6 +37,9 @@ clear
 
 while true; do
     while true; do
+        # directory
+        cd
+
         # Main menu
         var7=$(whiptail --title "SAMIR VPN Creator" --menu "Welcome to Samir VPN Creator, choose an option:" 20 80 11 \
             "1" "Server Upgrade" \
