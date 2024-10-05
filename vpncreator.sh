@@ -144,7 +144,7 @@ while true; do
                 cd /usr/local/
 
                 # download
-                url="https://github.com/MHSanaei/3x-ui/releases/download/2.4.0/x-ui-linux-$(arch).tar.gz"
+                url="https://github.com/MHSanaei/3x-ui/releases/download/v2.4.0/x-ui-linux-$(arch).tar.gz"
 
                 wget -N --no-check-certificate -O /usr/local/x-ui-linux-$(arch).tar.gz ${url}
 
@@ -570,4 +570,4 @@ EOF"
                 ;;
         esac
     done
-done
+done   
