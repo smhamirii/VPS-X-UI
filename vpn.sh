@@ -357,9 +357,17 @@ EOF"
                 ;;
             "6")
                 # unistall x-ui
-                var31="5"
-                var32="y"
-                echo -e "$var31\n$var32" | x-ui
+
+                # confiramtion
+                if whiptail --title "Delete Confirmation" --yesno "Are you sure you want to delete x-ui?" 10 60; then
+                    var31="5"
+                    var32="y"
+                    echo -e "$var31\n$var32" | x-ui
+                    
+                else
+                    break
+                fi
+                
                 ;;
             "7")
                 check_tunnel_status() {
@@ -375,23 +383,31 @@ EOF"
                 ;;
             "8")
                 # unistall tunnel
+                
                 # Check if the service is installed
                 if [ ! -f "/etc/systemd/system/tunnel.service" ]; then
                     echo "The service is not installed."
                     break
                 fi
+                
+                # confiramtion
+                if whiptail --title "Delete Confirmation" --yesno "Are you sure you want to delete tunnel?" 10 60; then
+                    # Stop and disable the service
+                    sudo systemctl stop tunnel.service
+                    sudo systemctl disable tunnel.service
 
-                # Stop and disable the service
-                sudo systemctl stop tunnel.service
-                sudo systemctl disable tunnel.service
+                    # Remove service file
+                    sudo rm /etc/systemd/system/tunnel.service
+                    sudo systemctl reset-failed
+                    sudo rm RTT
+                    sudo rm install.sh 2>/dev/null
 
-                # Remove service file
-                sudo rm /etc/systemd/system/tunnel.service
-                sudo systemctl reset-failed
-                sudo rm RTT
-                sudo rm install.sh 2>/dev/null
+                    echo "Uninstallation completed successfully."
+                    
+                else
+                    break
+                fi
 
-                echo "Uninstallation completed successfully."
                 ;;
             "9")
                 # Prompt the user to enter the subdomain to revoke
