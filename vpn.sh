@@ -133,11 +133,6 @@ while true; do
 
                 # Custom version
                 install_rtt_custom() {
-                    if pgrep -x "RTT" > /dev/null; then
-                        whiptail --msgbox "Tunnel is running! You must stop the tunnel before updating. (pkill RTT)\nUpdate is canceled." 10 60
-                        break
-                    fi
-
                     URL="https://github.com/radkesvat/ReverseTlsTunnel/releases/download/V5.4/v5.4_linux_amd64.zip"
 
                     wget $URL -O v5.4_linux_amd64.zip
@@ -501,4 +496,4 @@ EOF"
                 ;;
         esac
     done
-done
+done   
