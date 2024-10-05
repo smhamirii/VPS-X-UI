@@ -259,8 +259,8 @@ EOL
             whiptail --msgbox "Creating renewal script at $RENEW_SCRIPT_PATH..." 10 60
             sudo mkdir -p /etc/letsencrypt/scripts
 
-            # Create a renewal script with the correct EOF syntax
-            sudo bash -c "cat > $RENEW_SCRIPT_PATH << 'EOF'
+            # Append the renewal commands for the new subdomain
+            sudo bash -c "cat >> $RENEW_SCRIPT_PATH << 'EOF'
 #!/bin/bash
 # Renew certificate for $SUBDOMAIN using HTTP-01 challenge
 certbot renew --standalone --preferred-challenges http
@@ -273,12 +273,19 @@ sudo cp /etc/letsencrypt/live/$SUBDOMAIN/privkey.pem $CERT_DIR/privkey.pem
 sudo systemctl reload nginx   # Replace nginx with your web server if needed
 EOF"
 
+            # Ensure the renewal script has a proper shebang and permissions
+            if ! grep -q "#!/bin/bash" "$RENEW_SCRIPT_PATH"; then
+                sudo sed -i '1i#!/bin/bash' "$RENEW_SCRIPT_PATH"
+            fi
+
             # Make the renewal script executable
             sudo chmod +x $RENEW_SCRIPT_PATH
 
-            # Create a cron job for automatic renewal
-            whiptail --msgbox "Setting up cron job for automatic renewal..." 10 60
-            (crontab -l 2>/dev/null; echo "0 0 * * * $RENEW_SCRIPT_PATH > /dev/null 2>&1") | crontab -
+            # Create a cron job for automatic renewal if not already set
+            if ! crontab -l | grep -q "$RENEW_SCRIPT_PATH"; then
+                whiptail --msgbox "Setting up cron job for automatic renewal..." 10 60
+                (crontab -l 2>/dev/null; echo "0 0 * * * $RENEW_SCRIPT_PATH > /dev/null 2>&1") | crontab -
+            fi
 
             whiptail --msgbox "SSL certificate setup and automatic renewal complete for $SUBDOMAIN!" 10 60
             ;;
@@ -413,69 +420,65 @@ EOF"
             unistalltunnel
             ;;
         "9")
-            # Function to revoke a certificate for a specific subdomain
-            revoke_certificate() {
-                # Prompt for subdomain
-                SUBDOMAIN=$(whiptail --inputbox "Please enter the subdomain for which you want to revoke the SSL certificate (e.g., a1.example.com):" 10 60 3>&1 1>&2 2>&3)
-
-                # Validate that the subdomain is not empty
-                if [[ -z "$SUBDOMAIN" ]]; then
-                    whiptail --msgbox "Error: Subdomain cannot be empty. Please run the script again and provide a valid subdomain." 8 60
-                    exit 1
-                fi
-
-                # Confirm revocation
-                CONFIRM=$(whiptail --yesno "Are you sure you want to revoke the certificate for $SUBDOMAIN?" 10 60)
-
-                if [[ $? -ne 0 ]]; then
-                    whiptail --msgbox "Revocation process aborted." 8 45
-                    exit 0
-                fi
-
-                # Revoke the certificate using certbot
-                CERT_PATH="/etc/letsencrypt/live/$SUBDOMAIN/fullchain.pem"
-                if [[ -f "$CERT_PATH" ]]; then
-                    whiptail --msgbox "Revoking the certificate for $SUBDOMAIN..." 8 60
-                    sudo certbot revoke --cert-path "$CERT_PATH" --reason "unspecified"
-
-                    # Optionally delete the certificate files
-                    DELETE_CERT_FILES=$(whiptail --yesno "Do you want to delete the certificate files for $SUBDOMAIN?" 10 60)
-                    if [[ $? -eq 0 ]]; then
-                        sudo rm -rf "/etc/letsencrypt/live/$SUBDOMAIN"
-                        sudo rm -rf "/etc/letsencrypt/archive/$SUBDOMAIN"
-                        sudo rm -rf "/etc/letsencrypt/renewal/$SUBDOMAIN.conf"
-                        whiptail --msgbox "Certificate files for $SUBDOMAIN deleted." 8 60
-                    else
-                        whiptail --msgbox "Certificate files retained." 8 45
-                    fi
-
-                    # Remove the specific cron job for this subdomain
-                    whiptail --msgbox "Removing cron job for $SUBDOMAIN..." 8 60
-                    (crontab -l 2>/dev/null | grep -v -F "$SUBDOMAIN") | crontab -
-                    whiptail --msgbox "Cron job for $SUBDOMAIN removed." 8 60
-
-                    # Remove the renewal section for the specific subdomain from the renewal script
-                    RENEW_SCRIPT_PATH="/etc/letsencrypt/scripts/renew.sh"
-                    if [[ -f "$RENEW_SCRIPT_PATH" ]]; then
-                        whiptail --msgbox "Removing renewal section for $SUBDOMAIN from the renewal script..." 8 60
-
-                        # Using sed to remove the block of lines related to the subdomain
-                        sudo sed -i "/# Renew certificate for $SUBDOMAIN/,/sudo systemctl reload nginx/d" "$RENEW_SCRIPT_PATH"
-
-                        whiptail --msgbox "Renewal section for $SUBDOMAIN removed from the renewal script." 8 60
-                    else
-                        whiptail --msgbox "Renewal script not found at $RENEW_SCRIPT_PATH." 8 60
-                    fi
-
-                    whiptail --msgbox "Certificate for $SUBDOMAIN revoked and cleanup completed." 8 60
-                else
-                    whiptail --msgbox "Error: Certificate for $SUBDOMAIN not found." 8 60
-                fi
+            # Function to display an error and exit
+            error_exit() {
+                whiptail --msgbox "$1" 10 60 1>&2
+                exit 1
             }
 
-            # Call the function to revoke the certificate
-            revoke_certificate
-            
+            # Prompt the user to enter the subdomain to revoke
+            SUBDOMAIN=$(whiptail --inputbox "Please enter the subdomain you want to revoke (e.g., subdomain.example.com):" 10 60 3>&1 1>&2 2>&3)
+
+            # Validate that the subdomain is not empty
+            if [[ -z "$SUBDOMAIN" ]]; then
+                error_exit "Error: Subdomain cannot be empty. Please provide a valid subdomain."
+            fi
+
+            # Define the certificate paths
+            CERT_DIR="/etc/ssl/$SUBDOMAIN"
+            CERT_PATH="/etc/letsencrypt/live/$SUBDOMAIN/fullchain.pem"
+
+            # Check if the certificate exists for the subdomain
+            if [[ ! -f "$CERT_PATH" ]]; then
+                error_exit "Error: Certificate for $SUBDOMAIN does not exist."
+            fi
+
+            # Revoke the certificate using certbot
+            whiptail --msgbox "Revoking the certificate for $SUBDOMAIN..." 10 60
+            sudo certbot revoke --cert-path "$CERT_PATH" --reason "unspecified"
+
+            # Optionally delete the certificate files
+            DELETE_CERT_FILES=$(whiptail --yesno "Do you want to delete the certificate files for $SUBDOMAIN?" 10 60)
+            if [[ $? -eq 0 ]]; then
+                sudo rm -rf "/etc/letsencrypt/live/$SUBDOMAIN"
+                sudo rm -rf "/etc/letsencrypt/archive/$SUBDOMAIN"
+                sudo rm -rf "/etc/letsencrypt/renewal/$SUBDOMAIN.conf"
+                sudo rm -rf "$CERT_DIR"
+                whiptail --msgbox "Certificate files for $SUBDOMAIN deleted." 10 60
+            else
+                whiptail --msgbox "Certificate files retained." 10 60
+            fi
+
+            # Remove the specific cron job for this subdomain
+            whiptail --msgbox "Removing cron job for $SUBDOMAIN..." 10 60
+            (crontab -l 2>/dev/null | grep -v "$SUBDOMAIN") | crontab -
+            whiptail --msgbox "Cron job for $SUBDOMAIN removed." 10 60
+
+            # Remove the renewal section for the specific subdomain from the renewal script
+            RENEW_SCRIPT_PATH="/etc/letsencrypt/scripts/renew.sh"
+            if [[ -f "$RENEW_SCRIPT_PATH" ]]; then
+                whiptail --msgbox "Removing renewal entry for $SUBDOMAIN from the renewal script..." 10 60
+                
+                # Remove the block of lines related to the subdomain
+                sudo sed -i "/# Renew certificate for $SUBDOMAIN/,/sudo systemctl reload nginx/d" "$RENEW_SCRIPT_PATH"
+                
+                whiptail --msgbox "Renewal entry for $SUBDOMAIN removed from the renewal script." 10 60
+            else
+                whiptail --msgbox "Renewal script not found at $RENEW_SCRIPT_PATH." 10 60
+            fi
+
+            whiptail --msgbox "Certificate revocation and cleanup complete for $SUBDOMAIN." 10 60
+
             ;;
         "10")
             # Get the server's own IP address
