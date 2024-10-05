@@ -475,6 +475,7 @@ EOF"
 
             # Call the function to revoke the certificate
             revoke_certificate
+            
             ;;
         "10")
             # Get the server's own IP address
