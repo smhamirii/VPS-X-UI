@@ -41,7 +41,7 @@ while true; do
         cd
 
         # Main menu
-        var7=$(whiptail --title "SAMIR VPN Creator" --menu "Welcome to Samir VPN Creator, choose an option:" 20 80 11 \
+        var7=$(whiptail --title "SAMIR VPN Creator" --menu "Welcome to Samir VPN Creator, choose an option:" 20 80 12 \
             "1" "Server Upgrade" \
             "2" "Install X-UI Sanaei Panel" \
             "3" "Install Reverse Tunnel" \
@@ -52,7 +52,8 @@ while true; do
             "8" "Unistall Reverse Tunnel" \
             "9" "Revoke Certificate SSL" \
             "10" "Check Internet Connection" \
-            "11" "Exit" 3>&1 1>&2 2>&3)
+            "11" "X-UI Status" \
+            "12" "Exit" 3>&1 1>&2 2>&3)
 
         case "$var7" in
             "1")
@@ -563,10 +564,22 @@ EOF"
                 Google.com: $google_status\n\
                 My IP ($my_ip): $my_ip_status\n\
                 Other Server IP ($other_server_ip): $other_server_status\n\n\
-                Current Server Location: $server_location" 20 80 11
+                Current Server Location: $server_location" 20 80 12
 
                 ;;
             "11")
+                # Check if /usr/bin/x-ui file exists
+                if [ -f "/usr/bin/x-ui" ]; then
+                    # Display a message using whiptail if the file exists
+                    whiptail --title "File Check" --msgbox "x-ui exists!" 8 45
+                    x-ui
+                else
+                    # Display a message using whiptail if the file does not exist
+                    whiptail --title "File Check" --msgbox "x-ui does not exist!" 8 45
+                fi
+                            
+                ;;
+            "12")
                 # Exit option
                 exit 0
                 ;;                
