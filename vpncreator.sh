@@ -573,6 +573,8 @@ EOF"
                     # Display a message using whiptail if the file exists
                     whiptail --title "File Check" --msgbox "x-ui exists!" 8 45
                     x-ui
+                    break
+                    clear
                 else
                     # Display a message using whiptail if the file does not exist
                     whiptail --title "File Check" --msgbox "x-ui does not exist!" 8 45
