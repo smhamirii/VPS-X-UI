@@ -10,6 +10,7 @@ sudo killall apt apt-get
 # update
 sudo apt --fix-broken install
 sudo apt clean
+sudo dpkg --configure -a
 sudo apt update
 
 # install necessary packages
@@ -69,6 +70,12 @@ while true; do
                     whiptail --msgbox "Invalid response. Please enter 1 or 2." 8 45
                 fi
                 
+                # fix previous threat
+                sudo killall apt apt-get
+                sudo apt --fix-broken install
+                sudo apt clean
+                sudo dpkg --configure -a
+
                 #update dns
                 sudo systemd-resolve --flush-caches
                 sudo systemctl restart systemd-resolved
@@ -117,11 +124,65 @@ while true; do
                 ;;
             "2")
                 # Install x-ui View Sanaei
-                var1="y"
-                var2="samir"
-                var3="samir"
-                var4="8443"
-                echo -e "$var1\n$var2\n$var3\n$var4" | bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh)
+                arch() {
+                    case "$(uname -m)" in
+                    x86_64 | x64 | amd64) echo 'amd64' ;;
+                    i*86 | x86) echo '386' ;;
+                    armv8* | armv8 | arm64 | aarch64) echo 'arm64' ;;
+                    armv7* | armv7 | arm) echo 'armv7' ;;
+                    armv6* | armv6) echo 'armv6' ;;
+                    armv5* | armv5) echo 'armv5' ;;
+                    s390x) echo 's390x' ;;
+                    *) echo -e "${green}Unsupported CPU architecture! ${plain}" && rm -f install.sh && exit 1 ;;
+                    esac
+                }
+
+                # requirment
+                apt-get install -y -q wget curl tar tzdata
+
+                # change directory
+                cd /usr/local/
+
+                # download
+                url="https://github.com/MHSanaei/3x-ui/releases/download/2.4.0/x-ui-linux-$(arch).tar.gz"
+
+                wget -N --no-check-certificate -O /usr/local/x-ui-linux-$(arch).tar.gz ${url}
+
+
+                if [[ -e /usr/local/x-ui/ ]]; then
+                    systemctl stop x-ui
+                    rm /usr/local/x-ui/ -rf
+                fi
+
+                # download
+                tar zxvf x-ui-linux-$(arch).tar.gz
+                rm x-ui-linux-$(arch).tar.gz -f
+                cd x-ui
+                chmod +x x-ui
+
+                # Check the system's architecture and rename the file accordingly
+                if [[ $(arch) == "armv5" || $(arch) == "armv6" || $(arch) == "armv7" ]]; then
+                    mv bin/xray-linux-$(arch) bin/xray-linux-arm
+                    chmod +x bin/xray-linux-arm
+                fi
+
+
+                chmod +x x-ui bin/xray-linux-$(arch)
+                cp -f x-ui.service /etc/systemd/system/
+                wget --no-check-certificate -O /usr/bin/x-ui https://raw.githubusercontent.com/MHSanaei/3x-ui/main/x-ui.sh
+                chmod +x /usr/local/x-ui/x-ui.sh
+                chmod +x /usr/bin/x-ui
+
+                # setting
+                /usr/local/x-ui/x-ui setting -username "samir" -password "samir" -port "8443" -webBasePath ""
+                /usr/local/x-ui/x-ui migrate
+
+                # reload
+                systemctl daemon-reload
+                systemctl enable x-ui
+                systemctl start x-ui
+                
+                cd
                 ;;
             "3")                
                 # Check installed service
@@ -509,4 +570,4 @@ EOF"
                 ;;
         esac
     done
-done   
+done
