@@ -34,7 +34,8 @@ clear
 
 while true; do
     while true; do
-        var7=$(whiptail --title "SAMIR VPN Creator" --menu "Welcome to Samir VPN Creator, choose an option:" 20 70 11 \
+        # Main menu
+        var7=$(whiptail --title "SAMIR VPN Creator" --menu "Welcome to Samir VPN Creator, choose an option:" 20 80 11 \
             "1" "Server Upgrade" \
             "2" "Install X-UI Sanaei Panel" \
             "3" "Install Reverse Tunnel" \
@@ -122,12 +123,12 @@ while true; do
                 var4="8443"
                 echo -e "$var1\n$var2\n$var3\n$var4" | bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh)
                 ;;
-            "3")
+            "3")                
                 # Check installed service
                 check_installed() {
                     if [ -f "/etc/systemd/system/tunnel.service" ]; then
                         whiptail --msgbox "The service is already installed." 8 45
-                        break
+                        exit 1
                     fi
                 }
 
@@ -149,7 +150,7 @@ while true; do
 
                     if [ $? -ne 0 ]; then
                         whiptail --msgbox "Operation canceled." 8 45
-                        break
+                        exit 1
                     fi
 
                     sni=$(whiptail --inputbox "Please Enter SNI (default: tamin.ir):" 10 60 "tamin.ir" 3>&1 1>&2 2>&3)
@@ -161,7 +162,7 @@ while true; do
                         arguments="--iran --lport:23-65535 --sni:$sni --password:qwer --terminate:24"
                     else
                         whiptail --msgbox "Invalid choice. Please enter '1' or '2'." 8 45
-                        break
+                        exit 1
                     fi
                 }
 
@@ -292,14 +293,14 @@ EOF"
                     # Validate inputs
                     if [[ -z "$CF_API_TOKEN" || -z "$DOMAIN" || -z "$SUBDOMAIN" ]]; then
                         whiptail --msgbox "Cloudflare API token, domain, and subdomain must be provided." 10 60
-                        break
+                        exit 1
                     fi
 
                     # Get the public IP of the machine (server IP)
                     IP=$(curl -s https://api.ipify.org)
                     if [[ -z "$IP" ]]; then
                         whiptail --msgbox "Failed to retrieve your public IP address." 10 60
-                        break
+                        exit 1
                     fi
 
                     # Fetch the zone ID for the domain
@@ -310,7 +311,7 @@ EOF"
                     # Exit if no zone ID is found
                     if [[ -z "$ZONE_ID" || "$ZONE_ID" == "null" ]]; then
                         whiptail --msgbox "Failed to retrieve the zone ID for $DOMAIN. Please check the domain and API token." 10 60
-                        break
+                        exit 1
                     fi
 
                     # Check if the DNS record for the custom subdomain exists
@@ -331,7 +332,7 @@ EOF"
                             whiptail --msgbox "Successfully created a new DNS record for $SUBDOMAIN.$DOMAIN with IP $IP." 10 60
                         else
                             whiptail --msgbox "Failed to create the DNS record. Response: $CREATE_RESPONSE" 10 60
-                            break
+                            exit 1
                         fi
                     else
                         # If the DNS record exists, update the existing one
@@ -346,7 +347,7 @@ EOF"
                             whiptail --msgbox "Successfully updated the IP address for $SUBDOMAIN.$DOMAIN to $IP." 10 60
                         else
                             whiptail --msgbox "Failed to update the DNS record. Response: $UPDATE_RESPONSE" 10 60
-                            break
+                            exit 1
                         fi
                     fi
                 }
@@ -374,27 +375,23 @@ EOF"
                 ;;
             "8")
                 # unistall tunnel
-                unistalltunnel() {
-                    # Check if the service is installed
-                    if [ ! -f "/etc/systemd/system/tunnel.service" ]; then
-                        echo "The service is not installed."
-                        break
-                    fi
+                # Check if the service is installed
+                if [ ! -f "/etc/systemd/system/tunnel.service" ]; then
+                    echo "The service is not installed."
+                    break
+                fi
 
-                    # Stop and disable the service
-                    sudo systemctl stop tunnel.service
-                    sudo systemctl disable tunnel.service
+                # Stop and disable the service
+                sudo systemctl stop tunnel.service
+                sudo systemctl disable tunnel.service
 
-                    # Remove service file
-                    sudo rm /etc/systemd/system/tunnel.service
-                    sudo systemctl reset-failed
-                    sudo rm RTT
-                    sudo rm install.sh 2>/dev/null
+                # Remove service file
+                sudo rm /etc/systemd/system/tunnel.service
+                sudo systemctl reset-failed
+                sudo rm RTT
+                sudo rm install.sh 2>/dev/null
 
-                    echo "Uninstallation completed successfully."
-                }
-                
-                unistalltunnel
+                echo "Uninstallation completed successfully."
                 ;;
             "9")
                 # Prompt the user to enter the subdomain to revoke
@@ -484,7 +481,7 @@ EOF"
                 Google.com: $google_status\n\
                 My IP ($my_ip): $my_ip_status\n\
                 Other Server IP ($other_server_ip): $other_server_status\n\n\
-                Current Server Location: $server_location" 20 70
+                Current Server Location: $server_location" 20 80 11
 
                 ;;
             "11")
