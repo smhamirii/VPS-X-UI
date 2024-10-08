@@ -352,6 +352,26 @@ EOF"
                 # Function to manage Cloudflare DNS
                 cloudflare_dns_management() {
                     
+                    if [[ -n "$my_var" ]]; then
+                    unset my_var
+                    fi
+
+                    # Get the public IP of the machine (server IP)
+                    IP=$(curl -s https://api.ipify.org)
+                    if [[ -z "$IP" ]]; then
+                        whiptail --msgbox "Failed to retrieve your public IP address." 10 60
+                        exit 1
+                    fi
+
+                    # Choose IP location
+                    var61=$(whiptail --title "Choose IP" --menu "Choose IP USE VPS IP OR Custom IP:" 15 60 2 \
+                        "1" "MY IP : $IP" \
+                        "2" "Custom IP" 3>&1 1>&2 2>&3)
+          
+                    if [[ "$var61" == "2" ]]; then
+                        IP=$(whiptail --inputbox "Enter Custom IP" 10 60 3>&1 1>&2 2>&3)
+                    fi
+                    
                     # Prompt for Cloudflare API token, domain, and subdomain
                     CF_API_TOKEN=$(whiptail --inputbox "Enter your Cloudflare API token:" 10 60 3>&1 1>&2 2>&3)
                     DOMAIN=$(whiptail --inputbox "Enter your domain (example.com):" 10 60 3>&1 1>&2 2>&3)
@@ -360,13 +380,6 @@ EOF"
                     # Validate inputs
                     if [[ -z "$CF_API_TOKEN" || -z "$DOMAIN" || -z "$SUBDOMAIN" ]]; then
                         whiptail --msgbox "Cloudflare API token, domain, and subdomain must be provided." 10 60
-                        exit 1
-                    fi
-
-                    # Get the public IP of the machine (server IP)
-                    IP=$(curl -s https://api.ipify.org)
-                    if [[ -z "$IP" ]]; then
-                        whiptail --msgbox "Failed to retrieve your public IP address." 10 60
                         exit 1
                     fi
 
