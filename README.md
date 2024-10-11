@@ -14,4 +14,4 @@ This project provides a Bash script that allows you to manage various VPN-relate
 To install the VPN Creator Script, run the following command:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/smhamirii/VPS-X-UI/refs/heads/main/vpsoptimizer.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/smhamirii/VPS-X-UI/refs/heads/main/vp-ui.sh)
