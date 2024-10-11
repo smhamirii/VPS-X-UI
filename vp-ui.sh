@@ -37,7 +37,7 @@ clear
 
 while true; do
     while true; do
-        # directory
+        # main directory
         cd
 
         # Main menu
@@ -266,6 +266,8 @@ EOL
                 }
 
                 installtunnel
+
+                cd
                 ;;
             "4")
                 # Install cron if not already installed and enable it
@@ -350,90 +352,86 @@ EOF"
                 ;;
             "5")
                 # Function to manage Cloudflare DNS
-                cloudflare_dns_management() {
-                    
-                    if [[ -n "$my_var" ]]; then
-                    unset my_var
-                    fi
+                                    
+                if [[ -n "$my_var" ]]; then
+                unset my_var
+                fi
 
-                    # Get the public IP of the machine (server IP)
-                    IP=$(curl -s https://api.ipify.org)
-                    if [[ -z "$IP" ]]; then
-                        whiptail --msgbox "Failed to retrieve your public IP address." 10 60
-                        exit 1
-                    fi
+                # Get the public IP of the machine (server IP)
+                IP=$(curl -s https://api.ipify.org)
+                if [[ -z "$IP" ]]; then
+                    whiptail --msgbox "Failed to retrieve your public IP address." 10 60
+                    break
+                fi
 
-                    # Choose IP location
-                    var61=$(whiptail --title "Choose IP" --menu "Choose IP USE VPS IP OR Custom IP:" 15 60 2 \
-                        "1" "MY IP : $IP" \
-                        "2" "Custom IP" 3>&1 1>&2 2>&3)
-          
-                    if [[ "$var61" == "2" ]]; then
-                        IP=$(whiptail --inputbox "Enter Custom IP" 10 60 3>&1 1>&2 2>&3)
-                    fi
-                    
-                    # Prompt for Cloudflare API token, domain, and subdomain
-                    CF_API_TOKEN=$(whiptail --inputbox "Enter your Cloudflare API token:" 10 60 3>&1 1>&2 2>&3)
-                    DOMAIN=$(whiptail --inputbox "Enter your domain (example.com):" 10 60 3>&1 1>&2 2>&3)
-                    SUBDOMAIN=$(whiptail --inputbox "Enter your custom subdomain (e.g., api, blog):" 10 60 3>&1 1>&2 2>&3)
+                # Choose IP location
+                var61=$(whiptail --title "Choose IP" --menu "Choose IP USE VPS IP OR Custom IP:" 15 60 2 \
+                    "1" "MY IP : $IP" \
+                    "2" "Custom IP" 3>&1 1>&2 2>&3)
+        
+                if [[ "$var61" == "2" ]]; then
+                    IP=$(whiptail --inputbox "Enter Custom IP" 10 60 3>&1 1>&2 2>&3)
+                fi
+                
+                # Prompt for Cloudflare API token, domain, and subdomain
+                CF_API_TOKEN=$(whiptail --inputbox "Enter your Cloudflare API token:" 10 60 3>&1 1>&2 2>&3)
+                DOMAIN=$(whiptail --inputbox "Enter your domain (example.com):" 10 60 3>&1 1>&2 2>&3)
+                SUBDOMAIN=$(whiptail --inputbox "Enter your custom subdomain (e.g., api, blog):" 10 60 3>&1 1>&2 2>&3)
 
-                    # Validate inputs
-                    if [[ -z "$CF_API_TOKEN" || -z "$DOMAIN" || -z "$SUBDOMAIN" ]]; then
-                        whiptail --msgbox "Cloudflare API token, domain, and subdomain must be provided." 10 60
-                        exit 1
-                    fi
+                # Validate inputs
+                if [[ -z "$CF_API_TOKEN" || -z "$DOMAIN" || -z "$SUBDOMAIN" ]]; then
+                    whiptail --msgbox "Cloudflare API token, domain, and subdomain must be provided." 10 60
+                    break
+                fi
 
-                    # Fetch the zone ID for the domain
-                    ZONE_ID=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones?name=$DOMAIN" \
+                # Fetch the zone ID for the domain
+                ZONE_ID=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones?name=$DOMAIN" \
+                    -H "Authorization: Bearer $CF_API_TOKEN" \
+                    -H "Content-Type: application/json" | jq -r '.result[0].id')
+
+                # Exit if no zone ID is found
+                if [[ -z "$ZONE_ID" || "$ZONE_ID" == "null" ]]; then
+                    whiptail --msgbox "Failed to retrieve the zone ID for $DOMAIN. Please check the domain and API token." 10 60
+                    break
+                fi
+
+                # Check if the DNS record for the custom subdomain exists
+                RECORD_ID=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?name=$SUBDOMAIN.$DOMAIN" \
+                    -H "Authorization: Bearer $CF_API_TOKEN" \
+                    -H "Content-Type: application/json" | jq -r '.result[0].id')
+
+                if [[ -z "$RECORD_ID" || "$RECORD_ID" == "null" ]]; then
+                    # If no record exists, create a new one
+                    whiptail --msgbox "No DNS record found for $SUBDOMAIN.$DOMAIN. Creating a new DNS record..." 10 60
+                    CREATE_RESPONSE=$(curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" \
                         -H "Authorization: Bearer $CF_API_TOKEN" \
-                        -H "Content-Type: application/json" | jq -r '.result[0].id')
+                        -H "Content-Type: application/json" \
+                        --data '{"type":"A","name":"'"$SUBDOMAIN.$DOMAIN"'","content":"'"$IP"'","ttl":120,"proxied":false}')
 
-                    # Exit if no zone ID is found
-                    if [[ -z "$ZONE_ID" || "$ZONE_ID" == "null" ]]; then
-                        whiptail --msgbox "Failed to retrieve the zone ID for $DOMAIN. Please check the domain and API token." 10 60
-                        exit 1
-                    fi
-
-                    # Check if the DNS record for the custom subdomain exists
-                    RECORD_ID=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?name=$SUBDOMAIN.$DOMAIN" \
-                        -H "Authorization: Bearer $CF_API_TOKEN" \
-                        -H "Content-Type: application/json" | jq -r '.result[0].id')
-
-                    if [[ -z "$RECORD_ID" || "$RECORD_ID" == "null" ]]; then
-                        # If no record exists, create a new one
-                        whiptail --msgbox "No DNS record found for $SUBDOMAIN.$DOMAIN. Creating a new DNS record..." 10 60
-                        CREATE_RESPONSE=$(curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" \
-                            -H "Authorization: Bearer $CF_API_TOKEN" \
-                            -H "Content-Type: application/json" \
-                            --data '{"type":"A","name":"'"$SUBDOMAIN.$DOMAIN"'","content":"'"$IP"'","ttl":120,"proxied":false}')
-
-                        # Check if DNS record creation was successful
-                        if echo "$CREATE_RESPONSE" | jq -r '.success' | grep -q "true"; then
-                            whiptail --msgbox "Successfully created a new DNS record for $SUBDOMAIN.$DOMAIN with IP $IP." 10 60
-                        else
-                            whiptail --msgbox "Failed to create the DNS record. Response: $CREATE_RESPONSE" 10 60
-                            exit 1
-                        fi
+                    # Check if DNS record creation was successful
+                    if echo "$CREATE_RESPONSE" | jq -r '.success' | grep -q "true"; then
+                        whiptail --msgbox "Successfully created a new DNS record for $SUBDOMAIN.$DOMAIN with IP $IP." 10 60
                     else
-                        # If the DNS record exists, update the existing one
-                        whiptail --msgbox "DNS record for $SUBDOMAIN.$DOMAIN exists. Updating the IP address to $IP..." 10 60
-                        UPDATE_RESPONSE=$(curl -s -X PUT "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$RECORD_ID" \
-                            -H "Authorization: Bearer $CF_API_TOKEN" \
-                            -H "Content-Type: application/json" \
-                            --data '{"type":"A","name":"'"$SUBDOMAIN.$DOMAIN"'","content":"'"$IP"'","ttl":120,"proxied":false}')
-
-                        # Check if the update was successful
-                        if echo "$UPDATE_RESPONSE" | jq -r '.success' | grep -q "true"; then
-                            whiptail --msgbox "Successfully updated the IP address for $SUBDOMAIN.$DOMAIN to $IP." 10 60
-                        else
-                            whiptail --msgbox "Failed to update the DNS record. Response: $UPDATE_RESPONSE" 10 60
-                            exit 1
-                        fi
+                        whiptail --msgbox "Failed to create the DNS record. Response: $CREATE_RESPONSE" 10 60
+                        break
                     fi
-                }
+                else
+                    # If the DNS record exists, update the existing one
+                    whiptail --msgbox "DNS record for $SUBDOMAIN.$DOMAIN exists. Updating the IP address to $IP..." 10 60
+                    UPDATE_RESPONSE=$(curl -s -X PUT "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$RECORD_ID" \
+                        -H "Authorization: Bearer $CF_API_TOKEN" \
+                        -H "Content-Type: application/json" \
+                        --data '{"type":"A","name":"'"$SUBDOMAIN.$DOMAIN"'","content":"'"$IP"'","ttl":120,"proxied":false}')
 
-                # Run the Cloudflare DNS management function
-                cloudflare_dns_management
+                    # Check if the update was successful
+                    if echo "$UPDATE_RESPONSE" | jq -r '.success' | grep -q "true"; then
+                        whiptail --msgbox "Successfully updated the IP address for $SUBDOMAIN.$DOMAIN to $IP." 10 60
+                    else
+                        whiptail --msgbox "Failed to update the DNS record. Response: $UPDATE_RESPONSE" 10 60
+                        break
+                    fi
+                fi
+                
                 ;;
             "6")
                 # unistall x-ui
@@ -450,16 +448,13 @@ EOF"
                 
                 ;;
             "7")
-                check_tunnel_status() {
-                    # Check the status of the tunnel service
-                    if sudo systemctl is-active --quiet tunnel.service; then
-                        whiptail --msgbox "Tunnel is Active" 8 45
-                    else
-                        whiptail --msgbox "Tunnel is NOT Active" 8 45
-                    fi
-                }
-
-                check_tunnel_status
+                # Check the status of the tunnel service
+                if sudo systemctl is-active --quiet tunnel.service; then
+                    whiptail --msgbox "Tunnel is Active" 8 45
+                else
+                    whiptail --msgbox "Tunnel is NOT Active" 8 45
+                fi
+                
                 ;;
             "8")
                 # unistall tunnel
