@@ -353,8 +353,8 @@ EOF"
             "5")
                 # Function to manage Cloudflare DNS
                                     
-                if [[ -n "$my_var" ]]; then
-                unset my_var
+                if [[ -n "$IP" ]]; then
+                    unset IP
                 fi
 
                 # Get the public IP of the machine (server IP)
