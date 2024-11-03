@@ -55,6 +55,7 @@ main_update() {
 
 # main update
 main_update
+wait
 
 # install necessary packages
 sudo apt install wget whiptail lsof iptables unzip gcc git curl tar jq -y
