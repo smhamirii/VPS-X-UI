@@ -26,7 +26,7 @@ check_processes() {
 }
 
 # Main repair sequence
-main() {
+main_update() {
     # First check and kill running processes
     check_processes
 
@@ -54,7 +54,7 @@ main() {
 }
 
 # main update
-main()
+main_update
 
 # install necessary packages
 sudo apt install wget whiptail lsof iptables unzip gcc git curl tar jq -y
@@ -828,3 +828,4 @@ EOF"
         esac
     done
 done   
+
