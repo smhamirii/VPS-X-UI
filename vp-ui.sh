@@ -611,71 +611,114 @@ EOF"
                 fi                
                 ;;
             "7")
-                # remove existing swap
-                if ! whiptail --title "Confirm" --yesno "This will remove existing swap and create a new swap file. Continue?" 8 60; then
-                    break
-                fi
+                configure_swap() {
+                    # Check if running as root
+                    if [ "$EUID" -ne 0 ]; then
+                        whiptail --title "Error" --msgbox "Please run as root (sudo)" 8 40
+                        return 1
+                    fi
 
-                # Get system memory
-                local total_ram=$(free -m | grep Mem | awk '{print $2}')
+                    # remove existing swap
+                    if ! whiptail --title "Confirm" --yesno "This will remove existing swap and create a new swap file. Continue?" 8 60; then
+                        return 1
+                    fi
 
-                # Calculate recommended swap size (equal to RAM for systems up to 4GB, half of RAM for larger systems)
-                local recommended_swap=$total_ram
-                if [ $total_ram -gt 4096 ]; then
-                    recommended_swap=$((total_ram / 2))
-                fi
+                    # Get system memory
+                    local total_ram=$(free -m | grep Mem | awk '{print $2}')
 
-                # Ask for swap size
-                local swap_size=$(whiptail --title "Swap Size" --inputbox "\
+                    # Calculate recommended swap size (equal to RAM for systems up to 4GB, half of RAM for larger systems)
+                    local recommended_swap=$total_ram
+                    if [ $total_ram -gt 4096 ]; then
+                        recommended_swap=$((total_ram / 2))
+                    fi
+
+                    # Ask for swap size
+                    local swap_size=$(whiptail --title "Swap Size" --inputbox "\
                 Enter desired swap size in MB
                 Recommended size: ${recommended_swap}MB
                 Your RAM: ${total_ram}MB" 12 50 "$recommended_swap" 3>&1 1>&2 2>&3)
 
-                if [ $? -ne 0 ]; then
-                    whiptail --title "Cancelled" --msgbox "Operation cancelled by user." 8 40
-                    break
-                fi
+                    # Check if user cancelled
+                    if [ $? -ne 0 ]; then
+                        whiptail --title "Cancelled" --msgbox "Operation cancelled by user." 8 40
+                        return 1
+                    fi
 
-                # Validate input
-                if ! [[ "$swap_size" =~ ^[0-9]+$ ]]; then
-                    whiptail --title "Error" --msgbox "Please enter a valid number." 8 40
-                    break
-                fi
+                    # Validate input
+                    if ! [[ "$swap_size" =~ ^[0-9]+$ ]]; then
+                        whiptail --title "Error" --msgbox "Please enter a valid number." 8 40
+                        return 1
+                    fi
 
+                    # Confirm before proceeding with large swap sizes
+                    if [ "$swap_size" -gt $((total_ram * 2)) ]; then
+                        if ! whiptail --title "Warning" --yesno "The selected swap size is more than twice your RAM size. Are you sure you want to continue?" 8 60; then
+                            return 1
+                        fi
+                    fi
 
-                # Disable all swap
-                swapoff -a
+                    # Disable all swap
+                    echo "Disabling existing swap..."
+                    swapoff -a || {
+                        whiptail --title "Error" --msgbox "Failed to disable existing swap." 8 40
+                        return 1
+                    }
 
-                # Remove swap entries from /etc/fstab
-                sed -i '/swap/d' /etc/fstab
+                    # Remove swap entries from /etc/fstab
+                    echo "Removing swap entries from /etc/fstab..."
+                    sed -i '/swap/d' /etc/fstab
 
-                # Remove existing swap file if it exists
-                rm -f /swapfile
+                    # Remove existing swap file if it exists
+                    if [ -f /swapfile ]; then
+                        echo "Removing existing swap file..."
+                        rm -f /swapfile
+                    fi
 
-                whiptail --title "Swap Removal" --msgbox "Existing swap has been removed." 8 40
+                    whiptail --title "Swap Removal" --msgbox "Existing swap has been removed." 8 40
 
-                local size=$1
+                    # Create swap file
+                    echo "Creating new swap file..."
+                    if ! dd if=/dev/zero of=/swapfile bs=1M count="$swap_size" status=progress; then
+                        whiptail --title "Error" --msgbox "Failed to create swap file." 8 40
+                        return 1
+                    fi
 
-                # Create swap file
-                dd if=/dev/zero of=/swapfile bs=1M count=$size status=progress
+                    # Set correct permissions
+                    echo "Setting permissions..."
+                    chmod 600 /swapfile || {
+                        whiptail --title "Error" --msgbox "Failed to set swap file permissions." 8 40
+                        return 1
+                    }
 
-                # Set correct permissions
-                chmod 600 /swapfile
+                    # Format as swap
+                    echo "Formatting swap file..."
+                    if ! mkswap /swapfile; then
+                        whiptail --title "Error" --msgbox "Failed to format swap file." 8 40
+                        return 1
+                    fi
 
-                # Format as swap
-                mkswap /swapfile
+                    # Enable swap
+                    echo "Enabling swap..."
+                    if ! swapon /swapfile; then
+                        whiptail --title "Error" --msgbox "Failed to enable swap." 8 40
+                        return 1
+                    fi
 
-                # Enable swap
-                swapon /swapfile
+                    # Add to fstab
+                    echo "Updating /etc/fstab..."
+                    echo '/swapfile none swap sw 0 0' >> /etc/fstab
 
-                # Add to fstab
-                echo '/swapfile none swap sw 0 0' >> /etc/fstab
+                    # Configure swappiness
+                    echo "Configuring swappiness..."
+                    echo 'vm.swappiness=10' > /etc/sysctl.d/99-swappiness.conf
+                    sysctl -p /etc/sysctl.d/99-swappiness.conf
 
-                # Configure swappiness
-                echo 'vm.swappiness=10' >> /etc/sysctl.conf
-                sysctl -p
+                    whiptail --title "Success" --msgbox "New swap file of ${swap_size}MB has been created and enabled." 8 50
+                    return 0
+                }
 
-                whiptail --title "Swap Creation" --msgbox "New swap file of ${size}MB has been created and enabled." 8 50
+                # Call the function
+                configure_swap
                 ;;
             "8")
                 get_ipv4_addresses() {
