@@ -3,59 +3,16 @@
 # main directory
 cd
 
-# Log file setup
-LOG_FILE="/var/log/package-repair-$(date +%Y%m%d-%H%M%S).log"
-echo "Starting package management repair process at $(date)" | sudo tee -a $LOG_FILE
+# kill all apt
+sudo killall apt apt-get
 
-# Function to log commands and their output
-log_command() {
-    echo "Running: $1" | sudo tee -a $LOG_FILE
-    eval "sudo $1" 2>&1 | sudo tee -a $LOG_FILE
-    return ${PIPESTATUS[0]}
-}
-
-# Function to check if processes are running
-check_processes() {
-    if pgrep -x "apt" > /dev/null || pgrep -x "apt-get" > /dev/null; then
-        echo "Found running apt processes. Attempting to terminate..." | sudo tee -a $LOG_FILE
-        log_command "killall apt apt-get"
-        sleep 2
-    else
-        echo "No apt processes found running." | sudo tee -a $LOG_FILE
-    fi
-}
-
-# Main repair sequence
-main_update() {
-    # First check and kill running processes
-    check_processes
-
-    # Array of commands to run in sequence
-    commands=(
-        "apt --fix-broken install -y"
-        "apt clean"
-        "dpkg --configure -a"
-        "apt update"
-        "apt autoremove -y"
-    )
-
-    # Execute each command and check for errors
-    for cmd in "${commands[@]}"; do
-        echo -e "\nExecuting: $cmd" | sudo tee -a $LOG_FILE
-        if ! log_command "$cmd"; then
-            echo "Error executing: $cmd" | sudo tee -a $LOG_FILE
-            echo "Please check the log file at $LOG_FILE for details."
-            exit 1
-        fi
-    done
-
-    echo -e "\nPackage management repair completed successfully!" | sudo tee -a $LOG_FILE
-    echo "Log file saved at: $LOG_FILE"
-}
+# update
+sudo apt --fix-broken install
+sudo apt clean
+sudo dpkg --configure -a
 
 # main update
-main_update
-wait
+sudo apt update
 
 # install necessary packages
 sudo apt install wget whiptail lsof iptables unzip gcc git curl tar jq -y
@@ -116,9 +73,6 @@ while true; do
                 else
                     whiptail --msgbox "Invalid response. Please enter 1 or 2." 8 45
                 fi
-                
-                #disable firewall for opening port
-                sudo ufw disable
                 
                 #update dns
                 sudo systemd-resolve --flush-caches
