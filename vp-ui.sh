@@ -40,17 +40,18 @@ while true; do
         cd
 
         # Main menu
-        var7=$(whiptail --title "SAMIR VPN Creator" --menu "Welcome to Samir VPN Creator, choose an option:" 20 80 10 \
+        var7=$(whiptail --title "SAMIR VPN Creator" --menu "Welcome to Samir VPN Creator, choose an option:" 20 80 11 \
             "1" "Server Upgrade" \
             "2" "Internet Connection" \
             "3" "X-UI SERVICE" \
             "4" "Reverse Tunnel" \
-            "5" "SSL Certificate" \
-            "6" "Change Subdomain IP" \
-            "7" "Virtual RAM" \
-            "8" "Change Main IP" \
-            "9" "Auto Restart Server" \
-            "10" "Exit" 3>&1 1>&2 2>&3)
+            "5" "Cetificate + Change IP" \
+            "6" "SSL Certificate" \
+            "7" "Change Subdomain IP" \
+            "8" "Virtual RAM" \
+            "9" "Change Main IP" \
+            "10" "Auto Restart Server" \
+            "11" "Exit" 3>&1 1>&2 2>&3)
 
 
         case "$var7" in
@@ -394,6 +395,137 @@ EOL
                 esac               
                 ;;
             "5")
+                error_exit() {
+                    whiptail --msgbox "Error: $1" 10 60
+                    exit 1
+                }
+
+                # Function to update DNS record
+                update_dns_record() {
+                    local full_domain="$1"
+                    local ip="$2"
+                    local zone_id="$3"
+                    local record_id="$4"
+                    local cf_token="$5"
+
+                    local update_response=$(curl -s -X PUT "https://api.cloudflare.com/client/v4/zones/$zone_id/dns_records/$record_id" \
+                        -H "Authorization: Bearer $cf_token" \
+                        -H "Content-Type: application/json" \
+                        --data '{"type":"A","name":"'"$full_domain"'","content":"'"$ip"'","ttl":120,"proxied":false}')
+
+                    if ! echo "$update_response" | jq -r '.success' | grep -q "true"; then
+                        error_exit "Failed to update DNS record"
+                    fi
+                }
+
+                # Get the current VPS IP
+                VPS_IP=$(curl -s https://api.ipify.org)
+                [[ -z "$VPS_IP" ]] && error_exit "Failed to retrieve VPS IP address"
+
+                # Prompt for required information
+                CF_API_TOKEN=$(whiptail --inputbox "Enter your Cloudflare API token:" 10 60 3>&1 1>&2 2>&3)
+                FULL_DOMAIN=$(whiptail --inputbox "Enter your full domain (e.g., subdomain.example.com):" 10 60 3>&1 1>&2 2>&3)
+
+                # Validate inputs
+                [[ -z "$CF_API_TOKEN" ]] && error_exit "Cloudflare API token is required"
+                [[ -z "$FULL_DOMAIN" ]] && error_exit "Domain is required"
+
+                # Extract main domain from full domain
+                DOMAIN=$(echo "$FULL_DOMAIN" | awk -F '.' '{print $(NF-1)"."$NF}')
+                [[ -z "$DOMAIN" ]] && error_exit "Failed to extract main domain"
+
+                # Get zone ID
+                ZONE_ID=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones?name=$DOMAIN" \
+                    -H "Authorization: Bearer $CF_API_TOKEN" \
+                    -H "Content-Type: application/json" | jq -r '.result[0].id')
+
+                [[ -z "$ZONE_ID" || "$ZONE_ID" == "null" ]] && error_exit "Failed to retrieve zone ID"
+
+                # Get record ID and current (original) IP
+                RECORD_INFO=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?name=$FULL_DOMAIN" \
+                    -H "Authorization: Bearer $CF_API_TOKEN" \
+                    -H "Content-Type: application/json")
+
+                RECORD_ID=$(echo "$RECORD_INFO" | jq -r '.result[0].id')
+                ORIGINAL_IP=$(echo "$RECORD_INFO" | jq -r '.result[0].content')
+
+                [[ -z "$RECORD_ID" || "$RECORD_ID" == "null" ]] && error_exit "Failed to retrieve DNS record"
+                [[ -z "$ORIGINAL_IP" ]] && error_exit "Failed to retrieve original IP"
+
+                # Show confirmation before proceeding
+                whiptail --yesno "Ready to proceed with certificate renewal:\n\nDomain: $FULL_DOMAIN\nCurrent IP: $ORIGINAL_IP\nVPS IP: $VPS_IP\n\nContinue?" 15 60 || exit 0
+
+                # Store original IP in a temporary file for safety
+                echo "$ORIGINAL_IP" > /tmp/original_ip_backup
+
+                # Update DNS to VPS IP
+                echo "Updating DNS to VPS IP: $VPS_IP"
+                update_dns_record "$FULL_DOMAIN" "$VPS_IP" "$ZONE_ID" "$RECORD_ID" "$CF_API_TOKEN"
+
+                # Wait for DNS propagation
+                whiptail --msgbox "Waiting 60 seconds for DNS propagation..." 10 60
+                sleep 60
+
+                # Install dependencies if not already installed
+                sudo apt install -y certbot nginx
+
+                # Stop nginx temporarily
+                sudo systemctl stop nginx
+
+                # Request new certificate
+                echo "Requesting new SSL certificate..."
+                sudo certbot certonly --standalone --preferred-challenges http \
+                    --register-unsafely-without-email \
+                    --agree-tos \
+                    -d "$FULL_DOMAIN"
+
+                CERT_STATUS=$?
+
+                # Start nginx
+                sudo systemctl start nginx
+
+                # Let user choose which IP to use after certificate renewal
+                IP_CHOICE=$(whiptail --title "Choose Final IP" --menu "Choose which IP to use after certificate renewal:" 15 60 3 \
+                    "1" "Restore previous IP ($ORIGINAL_IP)" \
+                    "2" "Set custom IP" \
+                    "3" "Keep current VPS IP ($VPS_IP)" 3>&1 1>&2 2>&3)
+
+                case $IP_CHOICE in
+                    1)
+                        FINAL_IP=$ORIGINAL_IP
+                        ;;
+                    2)
+                        FINAL_IP=$(whiptail --inputbox "Enter the new IP address:" 10 60 3>&1 1>&2 2>&3)
+                        if [[ -z "$FINAL_IP" ]]; then
+                            whiptail --msgbox "No IP provided. Using original IP ($ORIGINAL_IP)" 10 60
+                            FINAL_IP=$ORIGINAL_IP
+                        fi
+                        ;;
+                    3)
+                        FINAL_IP=$VPS_IP
+                        ;;
+                    *)
+                        whiptail --msgbox "No selection made. Using original IP ($ORIGINAL_IP)" 10 60
+                        FINAL_IP=$ORIGINAL_IP
+                        ;;
+                esac
+
+                # Update DNS to final IP
+                echo "Updating DNS to final IP: $FINAL_IP"
+                update_dns_record "$FULL_DOMAIN" "$FINAL_IP" "$ZONE_ID" "$RECORD_ID" "$CF_API_TOKEN"
+
+                # Clean up
+                rm -f /tmp/original_ip_backup
+
+                # Final status
+                if [ $CERT_STATUS -eq 0 ]; then
+                    whiptail --msgbox "Certificate renewal complete!\n\nDomain: $FULL_DOMAIN\nFinal IP: $FINAL_IP" 12 60
+                else
+                    whiptail --msgbox "Certificate renewal failed!\n\nDomain: $FULL_DOMAIN\nFinal IP: $FINAL_IP" 12 60
+                fi
+
+                ;;
+            "6")
                 x3=$(whiptail --title "SSL Certificate" --menu "SSL Certificate, choose an option:" 20 80 2 \
                     "1" "Certificate for Subdomain SSL" \
                     "2" "Revoke Certificate SSL" 3>&1 1>&2 2>&3)
@@ -529,7 +661,7 @@ EOF"
                         ;;
                 esac
                 ;;
-            "6")
+            "7")
                 # Function to manage Cloudflare DNS                                    
                 if [[ -n "$IP" ]]; then
                     unset IP
@@ -610,7 +742,7 @@ EOF"
                     fi
                 fi                
                 ;;
-            "7")
+            "8")
                 configure_swap() {
                     # Check if running as root
                     if [ "$EUID" -ne 0 ]; then
@@ -720,7 +852,7 @@ EOF"
                 # Call the function
                 configure_swap
                 ;;
-            "8")
+            "9")
                 get_ipv4_addresses() {
                     # Get all IPv4 addresses and their interface names
                     ip -4 addr show | grep inet | grep -v '127.0.0.1' | awk '{print $2, "("$NF")"}'
@@ -795,7 +927,7 @@ EOF"
                     exit 1
                 fi
                 ;;
-            "9")
+            "10")
                 # Use whiptail to create a menu with two options
                 OPTION1=$(whiptail --title "Manage Reboot Cron Job" --menu "Choose an option:" 15 50 2 \
                 "1" "Add reboot cron job (1 AM UTC daily)" \
@@ -816,7 +948,7 @@ EOF"
                         break
                 fi               
                 ;;
-            "10")
+            "11")
                 # Exit option
                 exit 0
                 ;;                
@@ -826,4 +958,3 @@ EOF"
         esac
     done
 done   
-
