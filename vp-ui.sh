@@ -40,7 +40,7 @@ while true; do
         cd
 
         # Main menu
-        var7=$(whiptail --title "SAMIR VPN Creator" --menu "Welcome to Samir VPN Creator, choose an option:" 20 80 11 \
+        var7=$(whiptail --title "SAMIR VPN Creator" --menu "Welcome to Samir VPN Creator, choose an option:" 20 80 12 \
             "1" "Server Upgrade" \
             "2" "Internet Connection" \
             "3" "X-UI SERVICE" \
@@ -51,7 +51,8 @@ while true; do
             "8" "Virtual RAM" \
             "9" "Change Main IP" \
             "10" "Auto Restart Server" \
-            "11" "Exit" 3>&1 1>&2 2>&3)
+            "11" "New RTT" \
+            "12" "Exit" 3>&1 1>&2 2>&3)
 
 
         case "$var7" in
@@ -949,6 +950,15 @@ EOF"
                 fi               
                 ;;
             "11")
+                apt install python3 -y && sudo apt install python3-pip &&  pip install colorama && pip install netifaces && apt install curl -y
+                Wait    
+                pip3 install colorama
+                Wait
+                sudo apt-get install python-pip -y  &&  apt-get install python3 -y && alias python=python3 && python -m pip install colorama && python -m pip install netifaces
+                Wait
+                bash -c "$(curl -fsSL https://github.com/smhamirii/VPS-X-UI/blob/main/RTT.py)"
+                ;;  
+            "12")
                 # Exit option
                 exit 0
                 ;;                
@@ -958,3 +968,4 @@ EOF"
         esac
     done
 done   
+
