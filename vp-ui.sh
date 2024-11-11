@@ -950,12 +950,13 @@ EOF"
                 fi               
                 ;;
             "11")
+                # apt install python3 -y
                 apt install python3 -y && sudo apt install python3-pip &&  pip install colorama && pip install netifaces && apt install curl -y
-                Wait    
+                # pip3 install netifaces           
                 pip3 install colorama
-                Wait
+                # apt-get install python-pip
                 sudo apt-get install python-pip -y  &&  apt-get install python3 -y && alias python=python3 && python -m pip install colorama && python -m pip install netifaces
-                Wait
+                # bash RTT.py
                 bash -c "$(curl -fsSL https://github.com/smhamirii/VPS-X-UI/blob/main/RTT.py)"
                 ;;  
             "12")
