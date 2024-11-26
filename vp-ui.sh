@@ -17,6 +17,9 @@ sudo apt update
 # install necessary packages
 sudo apt install wget whiptail lsof iptables unzip gcc git curl tar jq -y
 
+# pip install --upgrade pip
+pip install --upgrade requests requests-toolbelt urllib3 certbot
+
 # Disable IPv6
 echo "127.0.0.1 $(hostname)" >> /etc/hosts
 sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1
@@ -49,7 +52,7 @@ while true; do
             "6" "SSL Certificate" \
             "7" "Change Subdomain IP" \
             "8" "Virtual RAM" \
-            "9" "Change Main IP" \
+            "9" "Change Main IP(Not Tested)" \
             "10" "Auto Restart Server" \
             "11" "New RTT" \
             "12" "Exit" 3>&1 1>&2 2>&3)
@@ -260,7 +263,7 @@ EOF
                         chmod +x /usr/bin/x-ui
 
                         # setting
-                        /usr/local/x-ui/x-ui setting -username "samir" -password "samir" -port "8443" -webBasePath ""
+                        /usr/local/x-ui/x-ui setting -username "samir" -password "samir" -port "2096" -webBasePath ""
                         /usr/local/x-ui/x-ui migrate
 
                         # reload
