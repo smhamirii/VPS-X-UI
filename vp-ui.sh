@@ -953,11 +953,11 @@ EOF"
                 fi               
                 ;;
             "11")
-                if [ -f "backhaul.py" ]; then
-                    rm backhaul.py
+                if [ -f "RTT.py" ]; then
+                    rm RTT.py
                 fi
                 wget https://github.com/smhamirii/VPS-X-UI/blob/main/RTT.py
-                python3 backhaul.py
+                python3 RTT.py
                 ;;  
             "12")
                 # Exit option
