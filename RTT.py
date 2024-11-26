@@ -108,7 +108,7 @@ def backhaul_menu():
         print("2  \033[93mSingle\033[0m")
         print("3  \033[93mEdit Backhaul\033[0m")
         print("4  \033[91mUninstall\033[0m")
-        print("0 \033[94mExit\033[0m")
+        print("0. \033[94mExit\033[0m")
         print("\033[93m╰───────────────────────────────────────╯\033[0m")
 
         try:
@@ -121,7 +121,7 @@ def backhaul_menu():
                 backhaul_edit_tcpmuxsingle()
             elif choice == "4":
                 backhaul_uninstall_single()
-            elif choice == "0":  
+            elif choice == "0.":  
                 print("Exiting...")
                 break
             else:
