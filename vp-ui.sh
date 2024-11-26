@@ -956,7 +956,7 @@ EOF"
                 if [ -f "RTT.py" ]; then
                     rm RTT.py
                 fi
-                wget https://github.com/smhamirii/VPS-X-UI/blob/main/RTT.py
+                wget https://raw.githubusercontent.com/smhamirii/VPS-X-UI/refs/heads/main/RTT.py
                 python3 RTT.py
                 ;;  
             "12")
