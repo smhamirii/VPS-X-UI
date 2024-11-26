@@ -7,8 +7,6 @@ import re
 import os
 import shutil
 import time
-import colorama
-from colorama import Fore, Style
 import subprocess
 from time import sleep
 import readline
