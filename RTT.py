@@ -184,99 +184,30 @@ def backhaul_iran_server_tcpmuxmenu():
     if port.isdigit():
         bind_addr = f"0.0.0.0:{port}"
     else:
-        bind_addr = "0.0.0.0:8443"
-
-    sniffer_enabled = input("\033[93mEnable sniffer (\033[92my\033[93m/\033[91mn\033[93m)? \033[0m").strip().lower() == "y"
-    sniffer_log = "/etc/backhaul.json" if sniffer_enabled else ""
+        bind_addr = "0.0.0.0:12000"
 
     config = {
         "bind_addr": bind_addr,
         "transport": "tcpmux",
-        "token": input("\033[93mEnter the \033[92mtoken\033[93m: \033[0m").strip(),
-        "keepalive_period": int(input("\033[93mEnter the \033[92mkeepalive period\033[97m (default 75)\033[93m: \033[0m") or 75),
-        "nodelay": input("\033[93mEnable nodelay (\033[92my\033[93m/\033[91mn\033[93m)? \033[0m").strip().lower() == "y",
-        "channel_size": int(input("\033[93mEnter the\033[92m channel size \033[97m(default 2048)\033[93m: \033[0m") or 2048),
-        "heartbeat": int(input("\033[93mEnter the \033[92mheartbeat interval\033[97m (default 40)\033[93m: \033[0m") or 40),
-        "mux_con": int(input("\033[93mEnter the \033[92mmux concurrency \033[97m(default 8)\033[93m: \033[0m") or 8),
-        "mux_version": int(input("\033[93mEnter the \033[92mmux version \033[97m(1 or 2, default 1)\033[93m: \033[0m") or 1),
-        "mux_framesize": int(input("\033[93mEnter the \033[92mmux frame size\033[97m (default 32768)\033[93m: \033[0m") or 32768),
-        "mux_recievebuffer": int(input("\033[93mEnter the \033[92mmux receive buffer size\033[97m (default 4194304)\033[93m: \033[0m") or 4194304),
-        "mux_streambuffer": int(input("\033[93mEnter the \033[92mmux stream buffer size \033[97m(default 65536)\033[93m: \033[0m") or 65536),
-        "sniffer": sniffer_enabled,
-        "sniffer_log": sniffer_log,
-        "web_port": int(input("\033[93mEnable \033[92mweb interface\033[93m (\033[92my\033[93m/\033[91mn\033[93m)? \033[0m").strip().lower() == "y" and input("Enter web port: ") or "0"),
+        "token": "samirkola",
+        "keepalive_period": 75,
+        "nodelay": false,
+        "channel_size": 2048,
+        "heartbeat": 40,
+        "mux_con": 8,
+        "mux_version": 1,
+        "mux_framesize": 32768,
+        "mux_recievebuffer": 4194304,
+        "mux_streambuffer": 65536,
+        "sniffer": false,
+        "sniffer_log": "",
+        "web_port": 0,
         "log_level": "info",
     }
 
-    print("\033[92m ^ ^\033[0m")
-    print("\033[92m(\033[91mO,O\033[92m)\033[0m")
-    print("\033[92m(   ) \033[92mPort Forward\033[93m Menu\033[0m")
-    print('\033[92m "-"\033[93m══════════════════════════════════════════════\033[0m')
-    print("\033[93mChoose \033[92mForward Type:\033[0m")
-    print("\033[93m╭───────────────────────────────────────╮\033[0m")
-    print("1)\033[92m Regular Port Forward\033[0m")
-    print("2)\033[93m Port Range Forward\033[0m")
-    print("\033[93m╰───────────────────────────────────────╯\033[0m")
-    
-    forward_type = int(input("Choose a forward type (1-2): "))
-
-    ports = []
-    if forward_type == 1:
-        print("\033[93mChoose \033[92mForward option:\033[0m")
-        print("\033[93m╭───────────────────────────────────────╮\033[0m")
-        print("1)\033[92m Port forward\033[0m")
-        print("2)\033[93m Forward from \033[97mspecific \033[96mlocal IP\033[0m")
-        print("3)\033[93m Forward to a \033[97mspecific \033[96mremote IP\033[0m")
-        print("4)\033[93m Forward from \033[97mspecific \033[92mlocal IP \033[93mto a \033[96mremote IP\033[0m")
-        print("\033[93m╰───────────────────────────────────────╯\033[0m")
-
-        choice = int(input("Choose an option (1-4): "))
-
-        count = int(input("\033[93mHow \033[92mmany ports \033[93mdo you want to forward? \033[0m"))
-        for i in range(1, count + 1):
-            if choice == 1:
-                local_port = input(f"\033[93mEnter \033[92mlocal port\033[96m {i}\033[93m: \033[0m")
-                remote_port = input(f"\033[93mEnter \033[92mremote port\033[96m {i}\033[93m: \033[0m")
-                ports.append(f"{local_port}={remote_port}")
-            elif choice == 2:
-                local_ip = input(f"\033[93mEnter \033[92mlocal IP\033[96m {i}\033[93m:  \033[0m")
-                local_port = input(f"\033[93mEnter \033[92mlocal port\033[96m {i}\033[93m:  \033[0m")
-                remote_port = input(f"\033[93mEnter \033[92mremote port\033[96m {i}\033[93m:  \033[0m")
-                ports.append(f"{local_ip}:{local_port}={remote_port}")
-            elif choice == 3:
-                local_port = input(f"\033[93mEnter \033[92mlocal port\033[96m {i}\033[93m:  \033[0m")
-                remote_ip = input(f"\033[93mEnter \033[92mremote IP\033[96m {i}\033[93m:  \033[0m")
-                remote_port = input(f"\033[93mEnter \033[92mremote port\033[96m {i}\033[93m:  \033[0m")
-                ports.append(f"{local_port}={remote_ip}:{remote_port}")
-            elif choice == 4:
-                local_ip = input(f"\033[93mEnter \033[92mlocal IP \033[96m{i}\033[93m: \033[0m")
-                local_port = input(f"\033[93mEnter \033[92mlocal port \033[96m{i}\033[93m: \033[0m")
-                remote_ip = input(f"\033[93mEnter \033[92mremote IP \033[96m{i}\033[93m: \033[0m")
-                remote_port = input(f"\033[93mEnter \033[92mremote port \033[96m{i}\033[93m: \033[0m")
-                ports.append(f"{local_ip}:{local_port}={remote_ip}:{remote_port}")
-
-    elif forward_type == 2:
-        print("\033[93m───────────────────────────────────────\033[0m")
-        print("\033[93mChoose \033[92mPort Range Forward option:\033[0m")
-        print("\033[93m╭───────────────────────────────────────╮\033[0m")
-        print("1)\033[92m Listen on all ports in the range\033[0m")
-        print("2)\033[93m Forward traffic to a specific port\033[0m")
-        print("3)\033[94m Forward traffic to a specific IP and port\033[0m")
-        print("\033[93m╰───────────────────────────────────────╯\033[0m")
-
-        range_choice = int(input("Choose an option (1-3): "))
-        port_range = input("\033[93mEnter \033[92mport range \033[97m(e.g: 100-900)\033[93m: \033[0m")
-        
-        if range_choice == 1:
-            ports.append(f"{port_range}")
-        elif range_choice == 2:
-            forward_port = input(f"\033[93mEnter \033[92mRemote port\033[93m: \033[0m")
-            ports.append(f"{port_range}:{forward_port}")
-        elif range_choice == 3:
-            forward_ip = input(f"\033[93mEnter \033[92mRemote IP\033[93m: \033[0m")
-            forward_port = input(f"\033[93mEnter \033[92mRemote port\033[93m: \033[0m")
-            ports.append(f"{port_range}={forward_ip}:{forward_port}")
-
+    ports = []    
+    port_range = input("\033[93mEnter \033[92mport range \033[97m(e.g: 100-900)\033[93m: \033[0m")        
+    ports.append(f"{port_range}")
     config["ports"] = ports
 
     config_path = "/usr/local/bin/backhaul/server.toml"
@@ -328,35 +259,9 @@ WantedBy=multi-user.target
 
 
 def enable_backhaul_reset_server():
-    print("\033[93m───────────────────────────────────────\033[0m")
-    display_notification("\033[93mQuestion time !\033[0m")
-    print("\033[93m───────────────────────────────────────\033[0m")
-    enable_reset = input(
-        "\033[93mDo you want to enable \033[96mBackhaul \033[92mreset timer\033[93m? (\033[92myes\033[93m/\033[91mno\033[93m): \033[0m"
-    ).lower()
-    if enable_reset in ["yes", "y"]:
-        print("\033[93m╭───────────────────────────────────────╮\033[0m")
-        print("1. \033[92mHour\033[0m")
-        print("2. \033[93mMinute\033[0m")
-        print("\033[93m╰───────────────────────────────────────╯\033[0m")
-
-        time_unit_choice = input("\033[93mEnter your choice :\033[0m ").strip()
-        if time_unit_choice == "1":
-            time_unit = "hour"
-        elif time_unit_choice == "2":
-            time_unit = "minute"
-        else:
-            print("\033[91mWrong choice\033[0m")
-            return
-
-        time_value = input(
-            "\033[93mEnter the \033[92mdesired input\033[93m:\033[0m "
-        ).strip()
-        interval_seconds = (
-            int(time_value) * 3600 if time_unit == "hour" else int(time_value) * 60
-        )
-        reset_backhaul_server(interval_seconds)
-        print("\033[93m────────────────────────────────────────\033[0m")
+    interval_seconds = 21600
+    reset_backhaul_server(interval_seconds)
+        
 
 
 def reset_backhaul_server(interval):
@@ -428,26 +333,24 @@ def backhaul_kharej_client_tcpmuxmenu():
         remote_addr = f"[{remote_addr}]"
     tunnel_port = input("\033[93mEnter \033[92mTunnel Port\033[93m : \033[0m").strip()
     remote_addr_with_port = f"{remote_addr}:{tunnel_port}"
-    aggressive_pool = input("\033[93mEnable \033[92maggressive pool (\033[92mtrue\033[93m/\033[91mfalse\033[93m)? [default: false] \033[0m").strip().lower() == "true"
-
 
     config = {
         "remote_addr": remote_addr_with_port,
         "transport": "tcpmux",
-        "token": input("\033[93mEnter the \033[92mtoken\033[93m: \033[0m").strip(),
-        "connection_pool": int(input("\033[93mEnter the \033[92mconnection pool\033[97m (default 8)\033[93m: \033[0m") or 8),
-        "aggressive_pool": aggressive_pool,
-        "keepalive_period": int(input("\033[93mEnter the \033[92mkeepalive period\033[97m (default 75)\033[93m: \033[0m") or 75),
-        "dial_timeout": int(input("\033[93mEnter the \033[92mdial timeout\033[97m (default 10)\033[93m: \033[0m") or 10),
-        "nodelay": input("\033[93mEnable nodelay (\033[92my\033[93m/\033[91mn\033[93m)? \033[0m").strip().lower() == "y",
-        "retry_interval": int(input("\033[93mEnter the \033[92mretry interval\033[97m (default 3)\033[93m: \033[0m") or 3),
-        "mux_version": int(input("\033[93mEnter the \033[92mmux version \033[97m(1 or 2, default 1)\033[93m: \033[0m") or 1),
-        "mux_framesize": int(input("\033[93mEnter the \033[92mmux frame size\033[97m (default 32768)\033[93m: \033[0m") or 32768),
-        "mux_recievebuffer": int(input("\033[93mEnter the \033[92mmux receive buffer size\033[97m (default 4194304)\033[93m: \033[0m") or 4194304),
-        "mux_streambuffer": int(input("\033[93mEnter the \033[92mmux stream buffer size \033[97m(default 65536)\033[93m: \033[0m") or 65536),
-        "sniffer": input("\033[93mEnable sniffer (\033[92my\033[93m/\033[91mn\033[93m)? \033[0m").strip().lower() == "y",
-        "sniffer_log": "/etc/backhaul.json",
-        "web_port": int(input("\033[93mEnable \033[92mweb interface\033[93m (\033[92my\033[93m/\033[91mn\033[93m)? \033[0m").strip().lower() == "y" and input("\033[93mEnter interface port:\033[0m ")),
+        "token": "token",
+        "connection_pool": 8,
+        "aggressive_pool": false,
+        "keepalive_period": 75,
+        "dial_timeout": 10,
+        "nodelay": false,
+        "retry_interval": 3,
+        "mux_version": 1,
+        "mux_framesize": 32768,
+        "mux_recievebuffer": 4194304,
+        "mux_streambuffer": 65536,
+        "sniffer": false,
+        "sniffer_log": "/etc/backhaul_client1.json",
+        "web_port": 0,
         "log_level": "info",
     }
 
@@ -494,35 +397,8 @@ WantedBy=multi-user.target
 
 
 def enable_backhaul_reset_client():
-    print("\033[93m───────────────────────────────────────\033[0m")
-    display_notification("\033[93mQuestion time !\033[0m")
-    print("\033[93m───────────────────────────────────────\033[0m")
-    enable_reset = input(
-        "\033[93mDo you want to enable \033[96mBackhaul \033[92mreset timer\033[93m? (\033[92myes\033[93m/\033[91mno\033[93m): \033[0m"
-    ).lower()
-    if enable_reset in ["yes", "y"]:
-        print("\033[93m╭───────────────────────────────────────╮\033[0m")
-        print("1. \033[92mHour\033[0m")
-        print("2. \033[93mMinute\033[0m")
-        print("\033[93m╰───────────────────────────────────────╯\033[0m")
-
-        time_unit_choice = input("\033[93mEnter your choice :\033[0m ").strip()
-        if time_unit_choice == "1":
-            time_unit = "hour"
-        elif time_unit_choice == "2":
-            time_unit = "minute"
-        else:
-            print("\033[91mWrong choice\033[0m")
-            return
-
-        time_value = input(
-            "\033[93mEnter the \033[92mdesired input\033[93m:\033[0m "
-        ).strip()
-        interval_seconds = (
-            int(time_value) * 3600 if time_unit == "hour" else int(time_value) * 60
-        )
-        reset_backhaul_client(interval_seconds)
-        print("\033[93m────────────────────────────────────────\033[0m")
+    interval_seconds = 21600
+    reset_backhaul_client(interval_seconds)
 
 
 def reset_backhaul_client(interval):
