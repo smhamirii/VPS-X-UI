@@ -1203,3 +1203,6 @@ CLIENT_TOML = "/usr/local/bin/backhaul/client.toml"
 BACKHAUL_JSON = "/etc/backhaul.json"
 BACKHAUL_DIR = "/etc/blackhaul"
 BACKHAUL_INSTALL_DIR = "/usr/local/bin/backhaul"
+
+
+backhaul_menu()
