@@ -1064,96 +1064,58 @@ EOF
                 # Modified Cloudflare DNS Update Function
                 v2m_update_cloudflare_dns() {
                     local new_ip="${1}"
-                    local max_retries=3
-                    local retry_count=0
-                    
-                    # Extract zone name from full domain
                     local zone_name
                     zone_name=$(echo "${V2M_FULL_DOMAIN}" | awk -F. '{print $(NF-1)"."$NF}')
                     
-                    while [ ${retry_count} -lt ${max_retries} ]; do
-                        local zone_response
-                        zone_response=$(curl -s -f -X GET "https://api.cloudflare.com/client/v4/zones?name=${zone_name}" \
-                            -H "Authorization: Bearer ${V2M_CLOUDFLARE_API_TOKEN}" \
-                            -H "Content-Type: application/json" 2>/dev/null)
-                        
-                        if [ $? -ne 0 ]; then
-                            v2m_log_message "Failed to connect to Cloudflare API"
-                            ((retry_count++))
-                            sleep 5
-                            continue
-                        fi
-                        
-                        local zone_id
-                        zone_id=$(echo "${zone_response}" | jq -r '.result[0].id')
-
-                        if [[ -z "${zone_id}" || "${zone_id}" == "null" ]]; then
-                            v2m_log_message "Failed to retrieve zone ID for ${zone_name}"
-                            return 1
-                        fi
-
-                        local record_response
-                        record_response=$(curl -s -f -X GET "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records?name=${V2M_FULL_DOMAIN}" \
-                            -H "Authorization: Bearer ${V2M_CLOUDFLARE_API_TOKEN}" \
-                            -H "Content-Type: application/json" 2>/dev/null)
-                            
-                        if [ $? -ne 0 ]; then
-                            v2m_log_message "Failed to retrieve DNS records"
-                            ((retry_count++))
-                            sleep 5
-                            continue
-                        fi
-                        
-                        local record_id
-                        record_id=$(echo "${record_response}" | jq -r '.result[0].id')
-
-                        if [[ -n "${record_id}" && "${record_id}" != "null" ]]; then
-                            local update_response
-                            update_response=$(curl -s -f -X PUT "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records/${record_id}" \
-                                -H "Authorization: Bearer ${V2M_CLOUDFLARE_API_TOKEN}" \
-                                -H "Content-Type: application/json" \
-                                --data "{\"type\":\"A\",\"name\":\"${V2M_FULL_DOMAIN}\",\"content\":\"${new_ip}\",\"ttl\":120,\"proxied\":false}" 2>/dev/null)
-                                
-                            if [ $? -ne 0 ]; then
-                                v2m_log_message "Failed to update DNS record"
-                                ((retry_count++))
-                                sleep 5
-                                continue
-                            fi
-
-                            if echo "${update_response}" | jq -r '.success' | grep -q "true"; then
-                                v2m_log_message "Updated DNS record for ${V2M_FULL_DOMAIN} to ${new_ip}"
-                                return 0
-                            fi
-                        fi
-                        
-                        ((retry_count++))
-                        sleep 5
-                    done
+                    # Get zone ID
+                    local zone_response
+                    zone_response=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones?name=${zone_name}" \
+                        -H "Authorization: Bearer ${V2M_CLOUDFLARE_API_TOKEN}" \
+                        -H "Content-Type: application/json")
                     
-                    v2m_log_message "Failed to update DNS after ${max_retries} attempts"
-                    return 1
+                    local zone_id
+                    zone_id=$(echo "${zone_response}" | jq -r '.result[0].id')
+                    
+                    if [[ -z "${zone_id}" || "${zone_id}" == "null" ]]; then
+                        v2m_log_message "Failed to get zone ID for ${zone_name}"
+                        return 1
+                    fi
+                    
+                    # Get record ID
+                    local record_response
+                    record_response=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records?name=${V2M_FULL_DOMAIN}" \
+                        -H "Authorization: Bearer ${V2M_CLOUDFLARE_API_TOKEN}" \
+                        -H "Content-Type: application/json")
+                    
+                    local record_id
+                    record_id=$(echo "${record_response}" | jq -r '.result[0].id')
+                    
+                    if [[ -z "${record_id}" || "${record_id}" == "null" ]]; then
+                        v2m_log_message "Failed to get record ID for ${V2M_FULL_DOMAIN}"
+                        return 1
+                    fi
+                    
+                    # Update DNS record
+                    local update_response
+                    update_response=$(curl -s -X PUT "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records/${record_id}" \
+                        -H "Authorization: Bearer ${V2M_CLOUDFLARE_API_TOKEN}" \
+                        -H "Content-Type: application/json" \
+                        --data "{\"type\":\"A\",\"name\":\"${V2M_FULL_DOMAIN}\",\"content\":\"${new_ip}\",\"ttl\":120,\"proxied\":false}")
+                    
+                    if echo "${update_response}" | jq -r '.success' | grep -q "true"; then
+                        v2m_log_message "Successfully updated DNS record to ${new_ip}"
+                        return 0
+                    else
+                        v2m_log_message "Failed to update DNS record to ${new_ip}"
+                        return 1
+                    fi
                 }
 
                 # Server Connectivity Check Function
                 v2m_check_connectivity() {
                     local target_ip="${1}"
-                    local attempt=0
-                    local max_attempts=3
-                    local timeout=2  # Reduced timeout for faster failure detection
-
-                    while [ ${attempt} -lt ${max_attempts} ]; do
-                        if ping -c 1 -W ${timeout} "${target_ip}" &> /dev/null; then
-                            # Additional TCP connectivity check on common ports
-                            if nc -z -w ${timeout} "${target_ip}" 443 &> /dev/null || 
-                            nc -z -w ${timeout} "${target_ip}" 80 &> /dev/null; then
-                                return 0
-                            fi
-                        fi
-                        ((attempt++))
-                        [ ${attempt} -lt ${max_attempts} ] && sleep 2
-                    done
-                    return 1
+                    ping -c 3 -W 5 "${target_ip}" &> /dev/null
+                    return $?
                 }
 
                 # Acquire lock function
@@ -1179,7 +1141,7 @@ EOF
                     rm -rf "${V2M_LOCK_FILE}"
                 }
 
-                                # Server Monitoring Function
+                # Server Monitoring Function
                 v2m_monitor_servers() {
                     if ! v2m_acquire_lock; then
                         v2m_log_message "Another instance is already running"
@@ -1187,38 +1149,17 @@ EOF
                     fi
                     
                     trap v2m_release_lock EXIT
-                    
-                    local current_ip=""
                     local check_interval=300  # 5 minutes in seconds
                     
                     while [[ -f "${V2M_SCRIPT_ENABLED_FILE}" ]]; do
-                        local iran_status="unreachable"
-                        local action_taken=""
-                        
-                        # Check Iran server connectivity
-                        if v2m_check_connectivity "${V2M_IRAN_IP}"; then
-                            iran_status="reachable"
-                            if [ "${current_ip}" != "${V2M_IRAN_IP}" ]; then
-                                if v2m_update_cloudflare_dns "${V2M_IRAN_IP}"; then
-                                    current_ip="${V2M_IRAN_IP}"
-                                    action_taken="Switched to Iran IP"
-                                fi
-                            else
-                                action_taken="Already using Iran IP"
-                            fi
+                        # Check Iran server connectivity with a simple ping test
+                        if ping -c 3 -W 5 "${V2M_IRAN_IP}" &> /dev/null; then
+                            v2m_log_message "Iran server is reachable, setting Iran IP"
+                            v2m_update_cloudflare_dns "${V2M_IRAN_IP}"
                         else
-                            if [ "${current_ip}" != "${V2M_KHAREJ_IP}" ]; then
-                                if v2m_update_cloudflare_dns "${V2M_KHAREJ_IP}"; then
-                                    current_ip="${V2M_KHAREJ_IP}"
-                                    action_taken="Switched to Kharej IP"
-                                fi
-                            else
-                                action_taken="Already using Kharej IP"
-                            fi
+                            v2m_log_message "Iran server is unreachable, setting Kharej IP"
+                            v2m_update_cloudflare_dns "${V2M_KHAREJ_IP}"
                         fi
-                        
-                        # Log comprehensive status
-                        v2m_log_message "Status Update - Domain: ${V2M_FULL_DOMAIN} | Iran Server: ${iran_status} | Current IP: ${current_ip} | Action: ${action_taken}"
                         
                         sleep ${check_interval}
                     done
