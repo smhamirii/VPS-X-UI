@@ -998,7 +998,7 @@ EOF"
                     # Logging Function
                     v2m_log_message() {
                         local message="${1}"
-                        echo "$(date '+%Y-%m-%d %H:%M:%S') - ${message}" | sudo tee -a "${V2M_LOG_FILE}"
+                        echo "$(date '+%Y-%m-%d %H:%M:%S') - ${message}" >> "${V2M_LOG_FILE}"
                     }
 
                     # Configuration Loading Function
@@ -1068,19 +1068,18 @@ EOF
                         local max_retries=3
                         local retry_count=0
                         
-                        local subdomain
-                        local domain
-                        subdomain="$(echo "${V2M_FULL_DOMAIN}" | cut -d. -f1)"
-                        domain="$(echo "${V2M_FULL_DOMAIN}" | cut -d. -f2-)"
+                        # Extract domain parts correctly
+                        local main_domain
+                        main_domain=$(echo "${V2M_FULL_DOMAIN}" | awk -F. '{print $(NF-1)"."$NF}')
 
                         while [ ${retry_count} -lt ${max_retries} ]; do
                             local zone_response
-                            zone_response=$(curl -s -f -X GET "https://api.cloudflare.com/client/v4/zones?name=${domain}" \
+                            zone_response=$(curl -s -f -X GET "https://api.cloudflare.com/client/v4/zones?name=${main_domain}" \
                                 -H "Authorization: Bearer ${V2M_CLOUDFLARE_API_TOKEN}" \
-                                -H "Content-Type: application/json")
+                                -H "Content-Type: application/json" 2>/dev/null)
                             
                             if [ $? -ne 0 ]; then
-                                v2m_log_message "Failed to connect to Cloudflare API"
+                                v2m_log_message "Failed to connect to Cloudflare API" >> "${V2M_LOG_FILE}"
                                 ((retry_count++))
                                 sleep 5
                                 continue
@@ -1090,17 +1089,17 @@ EOF
                             zone_id=$(echo "${zone_response}" | jq -r '.result[0].id')
 
                             if [[ -z "${zone_id}" || "${zone_id}" == "null" ]]; then
-                                v2m_log_message "Failed to retrieve zone ID for ${domain}"
+                                v2m_log_message "Failed to retrieve zone ID for ${main_domain}" >> "${V2M_LOG_FILE}"
                                 return 1
                             fi
 
                             local record_response
                             record_response=$(curl -s -f -X GET "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records?name=${V2M_FULL_DOMAIN}" \
                                 -H "Authorization: Bearer ${V2M_CLOUDFLARE_API_TOKEN}" \
-                                -H "Content-Type: application/json")
+                                -H "Content-Type: application/json" 2>/dev/null)
                                 
                             if [ $? -ne 0 ]; then
-                                v2m_log_message "Failed to retrieve DNS records"
+                                v2m_log_message "Failed to retrieve DNS records" >> "${V2M_LOG_FILE}"
                                 ((retry_count++))
                                 sleep 5
                                 continue
@@ -1114,17 +1113,17 @@ EOF
                                 update_response=$(curl -s -f -X PUT "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records/${record_id}" \
                                     -H "Authorization: Bearer ${V2M_CLOUDFLARE_API_TOKEN}" \
                                     -H "Content-Type: application/json" \
-                                    --data "{\"type\":\"A\",\"name\":\"${V2M_FULL_DOMAIN}\",\"content\":\"${new_ip}\",\"ttl\":120,\"proxied\":false}")
+                                    --data "{\"type\":\"A\",\"name\":\"${V2M_FULL_DOMAIN}\",\"content\":\"${new_ip}\",\"ttl\":120,\"proxied\":false}" 2>/dev/null)
                                     
                                 if [ $? -ne 0 ]; then
-                                    v2m_log_message "Failed to update DNS record"
+                                    v2m_log_message "Failed to update DNS record" >> "${V2M_LOG_FILE}"
                                     ((retry_count++))
                                     sleep 5
                                     continue
                                 fi
 
                                 if echo "${update_response}" | jq -r '.success' | grep -q "true"; then
-                                    v2m_log_message "Updated DNS record for ${V2M_FULL_DOMAIN} to ${new_ip}"
+                                    v2m_log_message "Updated DNS record for ${V2M_FULL_DOMAIN} to ${new_ip}" >> "${V2M_LOG_FILE}"
                                     return 0
                                 fi
                             fi
@@ -1133,7 +1132,7 @@ EOF
                             sleep 5
                         done
                         
-                        v2m_log_message "Failed to update DNS after ${max_retries} attempts"
+                        v2m_log_message "Failed to update DNS after ${max_retries} attempts" >> "${V2M_LOG_FILE}"
                         return 1
                     }
 
@@ -1188,15 +1187,15 @@ EOF
                         while [[ -f "${V2M_SCRIPT_ENABLED_FILE}" ]]; do
                             if ! v2m_check_connectivity "${V2M_IRAN_IP}"; then
                                 v2m_log_message "Iran server unreachable. Switching to Kharej IP."
-                                v2m_update_cloudflare_dns "${V2M_KHAREJ_IP}"
+                                v2m_update_cloudflare_dns "${V2M_KHAREJ_IP}" >>/dev/null 2>&1
                             else
                                 v2m_log_message "Iran server reachable. Updating to Iran IP."
-                                v2m_update_cloudflare_dns "${V2M_IRAN_IP}"
+                                v2m_update_cloudflare_dns "${V2M_IRAN_IP}" >>/dev/null 2>&1
                             fi
                             sleep 900
                         done
                     }
-
+                    
                     # Setup Monitoring Configuration Function
                     v2m_setup_monitoring() {
                         V2M_CLOUDFLARE_API_TOKEN=$(whiptail --inputbox "Enter Cloudflare API Token:" 10 60 3>&1 1>&2 2>&3)
