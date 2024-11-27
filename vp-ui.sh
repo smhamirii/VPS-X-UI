@@ -1069,8 +1069,9 @@ EOF
                         local retry_count=0
                         
                         # Extract domain parts correctly
-                        local main_domain
-                        main_domain=$(echo "${V2M_FULL_DOMAIN}" | awk -F. '{print $(NF-1)"."$NF}')
+                        local main_domain subdomain
+                        subdomain=$(echo "${V2M_FULL_DOMAIN}" | cut -d. -f1)
+                        main_domain=$(echo "${V2M_FULL_DOMAIN}" | cut -d. -f2-)
 
                         while [ ${retry_count} -lt ${max_retries} ]; do
                             local zone_response
@@ -1079,17 +1080,17 @@ EOF
                                 -H "Content-Type: application/json" 2>/dev/null)
                             
                             if [ $? -ne 0 ]; then
-                                v2m_log_message "Failed to connect to Cloudflare API" >> "${V2M_LOG_FILE}"
+                                v2m_log_message "Failed to connect to Cloudflare API"
                                 ((retry_count++))
                                 sleep 5
                                 continue
-                            fi
+                            }
                             
                             local zone_id
                             zone_id=$(echo "${zone_response}" | jq -r '.result[0].id')
 
                             if [[ -z "${zone_id}" || "${zone_id}" == "null" ]]; then
-                                v2m_log_message "Failed to retrieve zone ID for ${main_domain}" >> "${V2M_LOG_FILE}"
+                                v2m_log_message "Failed to retrieve zone ID for ${main_domain}"
                                 return 1
                             fi
 
@@ -1099,11 +1100,11 @@ EOF
                                 -H "Content-Type: application/json" 2>/dev/null)
                                 
                             if [ $? -ne 0 ]; then
-                                v2m_log_message "Failed to retrieve DNS records" >> "${V2M_LOG_FILE}"
+                                v2m_log_message "Failed to retrieve DNS records"
                                 ((retry_count++))
                                 sleep 5
                                 continue
-                            fi
+                            
                             
                             local record_id
                             record_id=$(echo "${record_response}" | jq -r '.result[0].id')
@@ -1116,14 +1117,14 @@ EOF
                                     --data "{\"type\":\"A\",\"name\":\"${V2M_FULL_DOMAIN}\",\"content\":\"${new_ip}\",\"ttl\":120,\"proxied\":false}" 2>/dev/null)
                                     
                                 if [ $? -ne 0 ]; then
-                                    v2m_log_message "Failed to update DNS record" >> "${V2M_LOG_FILE}"
+                                    v2m_log_message "Failed to update DNS record"
                                     ((retry_count++))
                                     sleep 5
                                     continue
                                 fi
 
                                 if echo "${update_response}" | jq -r '.success' | grep -q "true"; then
-                                    v2m_log_message "Updated DNS record for ${V2M_FULL_DOMAIN} to ${new_ip}" >> "${V2M_LOG_FILE}"
+                                    v2m_log_message "Updated DNS record for ${V2M_FULL_DOMAIN} to ${new_ip}"
                                     return 0
                                 fi
                             fi
@@ -1132,7 +1133,7 @@ EOF
                             sleep 5
                         done
                         
-                        v2m_log_message "Failed to update DNS after ${max_retries} attempts" >> "${V2M_LOG_FILE}"
+                        v2m_log_message "Failed to update DNS after ${max_retries} attempts"
                         return 1
                     }
 
@@ -1195,7 +1196,7 @@ EOF
                             sleep 900
                         done
                     }
-                    
+
                     # Setup Monitoring Configuration Function
                     v2m_setup_monitoring() {
                         V2M_CLOUDFLARE_API_TOKEN=$(whiptail --inputbox "Enter Cloudflare API Token:" 10 60 3>&1 1>&2 2>&3)
