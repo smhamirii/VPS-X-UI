@@ -1140,13 +1140,18 @@ EOF
                     local target_ip="${1}"
                     local attempt=0
                     local max_attempts=3
+                    local timeout=2  # Reduced timeout for faster failure detection
 
                     while [ ${attempt} -lt ${max_attempts} ]; do
-                        if ping -c 1 -W 1 "${target_ip}" &> /dev/null; then
-                            return 0
+                        if ping -c 1 -W ${timeout} "${target_ip}" &> /dev/null; then
+                            # Additional TCP connectivity check on common ports
+                            if nc -z -w ${timeout} "${target_ip}" 443 &> /dev/null || 
+                            nc -z -w ${timeout} "${target_ip}" 80 &> /dev/null; then
+                                return 0
+                            fi
                         fi
                         ((attempt++))
-                        sleep 5
+                        [ ${attempt} -lt ${max_attempts} ] && sleep 2
                     done
                     return 1
                 }
@@ -1174,7 +1179,7 @@ EOF
                     rm -rf "${V2M_LOCK_FILE}"
                 }
 
-                # Server Monitoring Function
+                                # Server Monitoring Function
                 v2m_monitor_servers() {
                     if ! v2m_acquire_lock; then
                         v2m_log_message "Another instance is already running"
@@ -1183,15 +1188,39 @@ EOF
                     
                     trap v2m_release_lock EXIT
                     
+                    local current_ip=""
+                    local check_interval=300  # 5 minutes in seconds
+                    
                     while [[ -f "${V2M_SCRIPT_ENABLED_FILE}" ]]; do
-                        if ! v2m_check_connectivity "${V2M_IRAN_IP}"; then
-                            v2m_log_message "Iran server unreachable. Switching to Kharej IP."
-                            v2m_update_cloudflare_dns "${V2M_KHAREJ_IP}"
+                        local iran_status="unreachable"
+                        local action_taken=""
+                        
+                        # Check Iran server connectivity
+                        if v2m_check_connectivity "${V2M_IRAN_IP}"; then
+                            iran_status="reachable"
+                            if [ "${current_ip}" != "${V2M_IRAN_IP}" ]; then
+                                if v2m_update_cloudflare_dns "${V2M_IRAN_IP}"; then
+                                    current_ip="${V2M_IRAN_IP}"
+                                    action_taken="Switched to Iran IP"
+                                fi
+                            else
+                                action_taken="Already using Iran IP"
+                            fi
                         else
-                            v2m_log_message "Iran server reachable. Updating to Iran IP."
-                            v2m_update_cloudflare_dns "${V2M_IRAN_IP}"
+                            if [ "${current_ip}" != "${V2M_KHAREJ_IP}" ]; then
+                                if v2m_update_cloudflare_dns "${V2M_KHAREJ_IP}"; then
+                                    current_ip="${V2M_KHAREJ_IP}"
+                                    action_taken="Switched to Kharej IP"
+                                fi
+                            else
+                                action_taken="Already using Kharej IP"
+                            fi
                         fi
-                        sleep 900
+                        
+                        # Log comprehensive status
+                        v2m_log_message "Status Update - Domain: ${V2M_FULL_DOMAIN} | Iran Server: ${iran_status} | Current IP: ${current_ip} | Action: ${action_taken}"
+                        
+                        sleep ${check_interval}
                     done
                 }
 
@@ -1227,6 +1256,53 @@ EOF
                     nohup bash -c "$(declare -f v2m_monitor_servers v2m_log_message v2m_check_connectivity v2m_update_cloudflare_dns v2m_acquire_lock v2m_release_lock); v2m_monitor_servers" >> "${V2M_LOG_FILE}" 2>&1 &
                 }
 
+                v2m_show_status() {
+                    local STATUS="Not Running"
+                    local CURRENT_IP=""
+                    local IRAN_STATUS="unchecked"
+                    
+                    if [[ -f "${V2M_SCRIPT_ENABLED_FILE}" ]]; then
+                        STATUS="Running"
+                        # Check current DNS record
+                        if v2m_load_config; then
+                            local zone_name
+                            zone_name=$(echo "${V2M_FULL_DOMAIN}" | awk -F. '{print $(NF-1)"."$NF}')
+                            
+                            local zone_response
+                            zone_response=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones?name=${zone_name}" \
+                                -H "Authorization: Bearer ${V2M_CLOUDFLARE_API_TOKEN}" \
+                                -H "Content-Type: application/json")
+                            
+                            local zone_id
+                            zone_id=$(echo "${zone_response}" | jq -r '.result[0].id')
+                            
+                            if [[ -n "${zone_id}" && "${zone_id}" != "null" ]]; then
+                                local record_response
+                                record_response=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records?name=${V2M_FULL_DOMAIN}" \
+                                    -H "Authorization: Bearer ${V2M_CLOUDFLARE_API_TOKEN}" \
+                                    -H "Content-Type: application/json")
+                                
+                                CURRENT_IP=$(echo "${record_response}" | jq -r '.result[0].content')
+                            fi
+                        fi
+                        
+                        # Check Iran server status
+                        if v2m_check_connectivity "${V2M_IRAN_IP}"; then
+                            IRAN_STATUS="reachable"
+                        else
+                            IRAN_STATUS="unreachable"
+                        fi
+                    fi
+                    
+                    # Return status message
+                    echo "Current Status:"
+                    echo "Monitoring: ${STATUS}"
+                    echo "Domain: ${V2M_FULL_DOMAIN}"
+                    echo "Iran IP: ${V2M_IRAN_IP} (${IRAN_STATUS})"
+                    echo "Kharej IP: ${V2M_KHAREJ_IP}"
+                    echo "Currently Set IP: ${CURRENT_IP:-Unknown}"
+                }
+
                 # Main Menu Function
                 v2m_main_menu() {
                     while true; do
@@ -1255,12 +1331,9 @@ EOF
                                 fi
                                 ;;
                             4)
-                                local STATUS="Not Running"
-                                [[ -f "${V2M_SCRIPT_ENABLED_FILE}" ]] && STATUS="Running"
-                                
-                                v2m_load_config
-                                
-                                whiptail --msgbox "Current Status:\n\nMonitoring: ${STATUS}\nDomain: ${V2M_FULL_DOMAIN}\nIran IP: ${V2M_IRAN_IP}\nKharej IP: ${V2M_KHAREJ_IP}" 15 60
+                                local status_text
+                                status_text=$(v2m_show_status)
+                                whiptail --title "Current Status" --msgbox "$status_text" 15 60
                                 ;;
                             5)
                                 return 0
@@ -1301,7 +1374,6 @@ EOF
                         ;;
                 esac
 
-                v2m_main_menu
                 ;;
             "13")
                 # Exit option
