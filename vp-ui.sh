@@ -1084,7 +1084,7 @@ EOF
                                 ((retry_count++))
                                 sleep 5
                                 continue
-                            
+                            fi
                             
                             local zone_id
                             zone_id=$(echo "${zone_response}" | jq -r '.result[0].id')
@@ -1104,7 +1104,7 @@ EOF
                                 ((retry_count++))
                                 sleep 5
                                 continue
-                            
+                            fi
                             
                             local record_id
                             record_id=$(echo "${record_response}" | jq -r '.result[0].id')
