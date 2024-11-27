@@ -1084,7 +1084,7 @@ EOF
                                 ((retry_count++))
                                 sleep 5
                                 continue
-                            }
+                            
                             
                             local zone_id
                             zone_id=$(echo "${zone_response}" | jq -r '.result[0].id')
