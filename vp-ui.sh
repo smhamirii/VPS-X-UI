@@ -1068,45 +1068,39 @@ EOF
                     zone_name=$(echo "${V2M_FULL_DOMAIN}" | awk -F. '{print $(NF-1)"."$NF}')
                     
                     # Get zone ID
-                    local zone_response
-                    zone_response=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones?name=${zone_name}" \
-                        -H "Authorization: Bearer ${V2M_CLOUDFLARE_API_TOKEN}" \
-                        -H "Content-Type: application/json")
-                    
                     local zone_id
-                    zone_id=$(echo "${zone_response}" | jq -r '.result[0].id')
+                    zone_id=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones?name=${zone_name}" \
+                        -H "Authorization: Bearer ${V2M_CLOUDFLARE_API_TOKEN}" \
+                        -H "Content-Type: application/json" | jq -r '.result[0].id')
                     
                     if [[ -z "${zone_id}" || "${zone_id}" == "null" ]]; then
-                        v2m_log_message "Failed to get zone ID for ${zone_name}"
+                        v2m_log_message "Failed to get zone ID"
                         return 1
                     fi
                     
                     # Get record ID
-                    local record_response
-                    record_response=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records?name=${V2M_FULL_DOMAIN}" \
-                        -H "Authorization: Bearer ${V2M_CLOUDFLARE_API_TOKEN}" \
-                        -H "Content-Type: application/json")
-                    
                     local record_id
-                    record_id=$(echo "${record_response}" | jq -r '.result[0].id')
+                    record_id=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records?name=${V2M_FULL_DOMAIN}" \
+                        -H "Authorization: Bearer ${V2M_CLOUDFLARE_API_TOKEN}" \
+                        -H "Content-Type: application/json" | jq -r '.result[0].id')
                     
                     if [[ -z "${record_id}" || "${record_id}" == "null" ]]; then
-                        v2m_log_message "Failed to get record ID for ${V2M_FULL_DOMAIN}"
+                        v2m_log_message "Failed to get record ID"
                         return 1
                     fi
                     
-                    # Update DNS record
-                    local update_response
-                    update_response=$(curl -s -X PUT "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records/${record_id}" \
+                    # Update record
+                    local success
+                    success=$(curl -s -X PUT "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records/${record_id}" \
                         -H "Authorization: Bearer ${V2M_CLOUDFLARE_API_TOKEN}" \
                         -H "Content-Type: application/json" \
-                        --data "{\"type\":\"A\",\"name\":\"${V2M_FULL_DOMAIN}\",\"content\":\"${new_ip}\",\"ttl\":120,\"proxied\":false}")
+                        --data "{\"type\":\"A\",\"name\":\"${V2M_FULL_DOMAIN}\",\"content\":\"${new_ip}\",\"ttl\":120,\"proxied\":false}" | jq -r '.success')
                     
-                    if echo "${update_response}" | jq -r '.success' | grep -q "true"; then
-                        v2m_log_message "Successfully updated DNS record to ${new_ip}"
+                    if [[ "${success}" == "true" ]]; then
+                        v2m_log_message "DNS updated to ${new_ip}"
                         return 0
                     else
-                        v2m_log_message "Failed to update DNS record to ${new_ip}"
+                        v2m_log_message "Failed to update DNS"
                         return 1
                     fi
                 }
@@ -1114,7 +1108,7 @@ EOF
                 # Server Connectivity Check Function
                 v2m_check_connectivity() {
                     local target_ip="${1}"
-                    ping -c 3 -W 5 "${target_ip}" &> /dev/null
+                    ping -c 1 -W 3 "${target_ip}" &> /dev/null
                     return $?
                 }
 
@@ -1144,24 +1138,23 @@ EOF
                 # Server Monitoring Function
                 v2m_monitor_servers() {
                     if ! v2m_acquire_lock; then
-                        v2m_log_message "Another instance is already running"
+                        v2m_log_message "Another instance is running"
                         return 1
                     fi
                     
                     trap v2m_release_lock EXIT
-                    local check_interval=300  # 5 minutes in seconds
                     
                     while [[ -f "${V2M_SCRIPT_ENABLED_FILE}" ]]; do
-                        # Check Iran server connectivity with a simple ping test
-                        if ping -c 3 -W 5 "${V2M_IRAN_IP}" &> /dev/null; then
-                            v2m_log_message "Iran server is reachable, setting Iran IP"
+                        if v2m_check_connectivity "${V2M_IRAN_IP}"; then
+                            v2m_log_message "Iran server reachable"
                             v2m_update_cloudflare_dns "${V2M_IRAN_IP}"
                         else
-                            v2m_log_message "Iran server is unreachable, setting Kharej IP"
+                            v2m_log_message "Iran server unreachable"
                             v2m_update_cloudflare_dns "${V2M_KHAREJ_IP}"
                         fi
                         
-                        sleep ${check_interval}
+                        v2m_log_message "Waiting 300 seconds before next check..."
+                        sleep 300
                     done
                 }
 
