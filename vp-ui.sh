@@ -43,19 +43,20 @@ while true; do
         cd
 
         # Main menu
-        var7=$(whiptail --title "SAMIR VPN Creator" --menu "Welcome to Samir VPN Creator, choose an option:" 20 80 12 \
+        var7=$(whiptail --title "SAMIR VPN Creator" --menu "Welcome to Samir VPN Creator, choose an option:" 20 80 13 \
             "1" "Server Upgrade" \
             "2" "Internet Connection" \
             "3" "X-UI SERVICE" \
-            "4" "Reverse Tunnel" \
-            "5" "Cetificate + Change IP" \
-            "6" "SSL Certificate" \
-            "7" "Change Subdomain IP" \
-            "8" "Virtual RAM" \
-            "9" "Change Main IP(Not Tested)" \
-            "10" "Auto Restart Server" \
-            "11" "New RTT" \
-            "12" "Exit" 3>&1 1>&2 2>&3)
+            "4" "Reverse Tunnel (Old method)" \
+            "5" "Reverse Tunnel (New method)" \
+            "6" "Cetificate + Change IP" \
+            "7" "Virtual RAM" \
+            "8" "Change Main IP(Not Tested)" \
+            "9" "SSL Certificate" \
+            "10" "Change Subdomain IP" \
+            "11" "Auto Restart Server" \
+            "12" "Auto Server Change(should run on kharej)" \
+            "13" "Exit" 3>&1 1>&2 2>&3)
 
 
         case "$var7" in
@@ -399,6 +400,13 @@ EOL
                 esac               
                 ;;
             "5")
+                if [ -f "RTT.py" ]; then
+                    rm RTT.py
+                fi
+                wget https://raw.githubusercontent.com/smhamirii/VPS-X-UI/refs/heads/main/RTT.py
+                python3 RTT.py
+                ;;
+            "6")
                 error_exit() {
                     whiptail --msgbox "Error: $1" 10 60
                     exit 1
@@ -529,7 +537,192 @@ EOL
                 fi
 
                 ;;
-            "6")
+            "7")
+                configure_swap() {
+                    # Check if running as root
+                    if [ "$EUID" -ne 0 ]; then
+                        whiptail --title "Error" --msgbox "Please run as root (sudo)" 8 40
+                        return 1
+                    fi
+
+                    # remove existing swap
+                    if ! whiptail --title "Confirm" --yesno "This will remove existing swap and create a new swap file. Continue?" 8 60; then
+                        return 1
+                    fi
+
+                    # Get system memory
+                    local total_ram=$(free -m | grep Mem | awk '{print $2}')
+
+                    # Calculate recommended swap size (equal to RAM for systems up to 4GB, half of RAM for larger systems)
+                    local recommended_swap=$total_ram
+                    if [ $total_ram -gt 4096 ]; then
+                        recommended_swap=$((total_ram / 2))
+                    fi
+
+                    # Ask for swap size
+                    local swap_size=$(whiptail --title "Swap Size" --inputbox "\
+                Enter desired swap size in MB
+                Recommended size: ${recommended_swap}MB
+                Your RAM: ${total_ram}MB" 12 50 "$recommended_swap" 3>&1 1>&2 2>&3)
+
+                    # Check if user cancelled
+                    if [ $? -ne 0 ]; then
+                        whiptail --title "Cancelled" --msgbox "Operation cancelled by user." 8 40
+                        return 1
+                    fi
+
+                    # Validate input
+                    if ! [[ "$swap_size" =~ ^[0-9]+$ ]]; then
+                        whiptail --title "Error" --msgbox "Please enter a valid number." 8 40
+                        return 1
+                    fi
+
+                    # Confirm before proceeding with large swap sizes
+                    if [ "$swap_size" -gt $((total_ram * 2)) ]; then
+                        if ! whiptail --title "Warning" --yesno "The selected swap size is more than twice your RAM size. Are you sure you want to continue?" 8 60; then
+                            return 1
+                        fi
+                    fi
+
+                    # Disable all swap
+                    echo "Disabling existing swap..."
+                    swapoff -a || {
+                        whiptail --title "Error" --msgbox "Failed to disable existing swap." 8 40
+                        return 1
+                    }
+
+                    # Remove swap entries from /etc/fstab
+                    echo "Removing swap entries from /etc/fstab..."
+                    sed -i '/swap/d' /etc/fstab
+
+                    # Remove existing swap file if it exists
+                    if [ -f /swapfile ]; then
+                        echo "Removing existing swap file..."
+                        rm -f /swapfile
+                    fi
+
+                    whiptail --title "Swap Removal" --msgbox "Existing swap has been removed." 8 40
+
+                    # Create swap file
+                    echo "Creating new swap file..."
+                    if ! dd if=/dev/zero of=/swapfile bs=1M count="$swap_size" status=progress; then
+                        whiptail --title "Error" --msgbox "Failed to create swap file." 8 40
+                        return 1
+                    fi
+
+                    # Set correct permissions
+                    echo "Setting permissions..."
+                    chmod 600 /swapfile || {
+                        whiptail --title "Error" --msgbox "Failed to set swap file permissions." 8 40
+                        return 1
+                    }
+
+                    # Format as swap
+                    echo "Formatting swap file..."
+                    if ! mkswap /swapfile; then
+                        whiptail --title "Error" --msgbox "Failed to format swap file." 8 40
+                        return 1
+                    fi
+
+                    # Enable swap
+                    echo "Enabling swap..."
+                    if ! swapon /swapfile; then
+                        whiptail --title "Error" --msgbox "Failed to enable swap." 8 40
+                        return 1
+                    fi
+
+                    # Add to fstab
+                    echo "Updating /etc/fstab..."
+                    echo '/swapfile none swap sw 0 0' >> /etc/fstab
+
+                    # Configure swappiness
+                    echo "Configuring swappiness..."
+                    echo 'vm.swappiness=10' > /etc/sysctl.d/99-swappiness.conf
+                    sysctl -p /etc/sysctl.d/99-swappiness.conf
+
+                    whiptail --title "Success" --msgbox "New swap file of ${swap_size}MB has been created and enabled." 8 50
+                    return 0
+                }
+
+                # Call the function
+                configure_swap
+                ;;
+            "8")
+                get_ipv4_addresses() {
+                    # Get all IPv4 addresses and their interface names
+                    ip -4 addr show | grep inet | grep -v '127.0.0.1' | awk '{print $2, "("$NF")"}'
+                }
+
+                # Function to set the default route
+                set_default_route() {
+                    local chosen_ip="$1"
+                    local interface=$(ip addr show | grep "$chosen_ip" | awk '{print $NF}')
+                    
+                    # Remove existing default routes
+                    ip route del default 2>/dev/null
+
+                    # Get the gateway for the chosen interface
+                    local gateway=$(ip route | grep "$interface" | grep -v 'default' | awk '{print $1}' | cut -d'/' -f1 | head -n1)
+                    
+                    # Add new default route
+                    if ip route add default via "$gateway" dev "$interface"; then
+                        return 0
+                    else
+                        return 1
+                    fi
+                }
+
+                # Get all IPv4 addresses
+                IPS=($(get_ipv4_addresses))
+
+                if [ ${#IPS[@]} -eq 0 ]; then
+                    whiptail --title "Error" --msgbox "No IPv4 addresses found!" 8 40
+                    exit 1
+                fi
+
+                # Create options array for whiptail
+                OPTIONS=()
+                for ((i=0; i<${#IPS[@]}; i+=2)); do
+                    OPTIONS+=("${IPS[i]}" "${IPS[i+1]}")
+                done
+
+                # Show menu with IP addresses
+                CHOSEN_IP=$(whiptail --title "Select Main IP Address" \
+                    --menu "Choose the IP address to use as main internet connection:" \
+                    20 60 10 \
+                    "${OPTIONS[@]}" \
+                    3>&1 1>&2 2>&3)
+
+                # Check if user canceled
+                if [ $? -ne 0 ]; then
+                    echo "Operation canceled by user"
+                    exit 1
+                fi
+
+                # Extract IP address without CIDR notation
+                CHOSEN_IP=$(echo $CHOSEN_IP | cut -d'/' -f1)
+
+                # Show confirmation dialog
+                if whiptail --title "Confirm Selection" --yesno "Are you sure you want to set $CHOSEN_IP as your main IP?" 8 60; then
+                    # Backup current network configuration
+                    cp /etc/netplan/00-installer-config.yaml /etc/netplan/00-installer-config.yaml.backup.$(date +%Y%m%d-%H%M%S)
+                    
+                    # Set the new default route
+                    if set_default_route "$CHOSEN_IP"; then
+                        whiptail --title "Success" --msgbox "Successfully set $CHOSEN_IP as main IP.\nA backup of your network configuration has been created." 10 60
+                        
+                        # Show current routing table
+                        echo "Current routing table:"
+                        ip route show
+                    else
+                        whiptail --title "Error" --msgbox "Failed to set $CHOSEN_IP as main IP.\nPlease check system logs for more information." 10 60
+                    fi
+                else
+                    echo "Operation canceled by user"
+                    exit 1
+                fi
+                ;;
+            "9")
                 x3=$(whiptail --title "SSL Certificate" --menu "SSL Certificate, choose an option:" 20 80 2 \
                     "1" "Certificate for Subdomain SSL" \
                     "2" "Revoke Certificate SSL" 3>&1 1>&2 2>&3)
@@ -665,7 +858,7 @@ EOF"
                         ;;
                 esac
                 ;;
-            "7")
+            "10")
                 # Function to manage Cloudflare DNS                                    
                 if [[ -n "$IP" ]]; then
                     unset IP
@@ -745,193 +938,8 @@ EOF"
                         break
                     fi
                 fi                
-                ;;
-            "8")
-                configure_swap() {
-                    # Check if running as root
-                    if [ "$EUID" -ne 0 ]; then
-                        whiptail --title "Error" --msgbox "Please run as root (sudo)" 8 40
-                        return 1
-                    fi
-
-                    # remove existing swap
-                    if ! whiptail --title "Confirm" --yesno "This will remove existing swap and create a new swap file. Continue?" 8 60; then
-                        return 1
-                    fi
-
-                    # Get system memory
-                    local total_ram=$(free -m | grep Mem | awk '{print $2}')
-
-                    # Calculate recommended swap size (equal to RAM for systems up to 4GB, half of RAM for larger systems)
-                    local recommended_swap=$total_ram
-                    if [ $total_ram -gt 4096 ]; then
-                        recommended_swap=$((total_ram / 2))
-                    fi
-
-                    # Ask for swap size
-                    local swap_size=$(whiptail --title "Swap Size" --inputbox "\
-                Enter desired swap size in MB
-                Recommended size: ${recommended_swap}MB
-                Your RAM: ${total_ram}MB" 12 50 "$recommended_swap" 3>&1 1>&2 2>&3)
-
-                    # Check if user cancelled
-                    if [ $? -ne 0 ]; then
-                        whiptail --title "Cancelled" --msgbox "Operation cancelled by user." 8 40
-                        return 1
-                    fi
-
-                    # Validate input
-                    if ! [[ "$swap_size" =~ ^[0-9]+$ ]]; then
-                        whiptail --title "Error" --msgbox "Please enter a valid number." 8 40
-                        return 1
-                    fi
-
-                    # Confirm before proceeding with large swap sizes
-                    if [ "$swap_size" -gt $((total_ram * 2)) ]; then
-                        if ! whiptail --title "Warning" --yesno "The selected swap size is more than twice your RAM size. Are you sure you want to continue?" 8 60; then
-                            return 1
-                        fi
-                    fi
-
-                    # Disable all swap
-                    echo "Disabling existing swap..."
-                    swapoff -a || {
-                        whiptail --title "Error" --msgbox "Failed to disable existing swap." 8 40
-                        return 1
-                    }
-
-                    # Remove swap entries from /etc/fstab
-                    echo "Removing swap entries from /etc/fstab..."
-                    sed -i '/swap/d' /etc/fstab
-
-                    # Remove existing swap file if it exists
-                    if [ -f /swapfile ]; then
-                        echo "Removing existing swap file..."
-                        rm -f /swapfile
-                    fi
-
-                    whiptail --title "Swap Removal" --msgbox "Existing swap has been removed." 8 40
-
-                    # Create swap file
-                    echo "Creating new swap file..."
-                    if ! dd if=/dev/zero of=/swapfile bs=1M count="$swap_size" status=progress; then
-                        whiptail --title "Error" --msgbox "Failed to create swap file." 8 40
-                        return 1
-                    fi
-
-                    # Set correct permissions
-                    echo "Setting permissions..."
-                    chmod 600 /swapfile || {
-                        whiptail --title "Error" --msgbox "Failed to set swap file permissions." 8 40
-                        return 1
-                    }
-
-                    # Format as swap
-                    echo "Formatting swap file..."
-                    if ! mkswap /swapfile; then
-                        whiptail --title "Error" --msgbox "Failed to format swap file." 8 40
-                        return 1
-                    fi
-
-                    # Enable swap
-                    echo "Enabling swap..."
-                    if ! swapon /swapfile; then
-                        whiptail --title "Error" --msgbox "Failed to enable swap." 8 40
-                        return 1
-                    fi
-
-                    # Add to fstab
-                    echo "Updating /etc/fstab..."
-                    echo '/swapfile none swap sw 0 0' >> /etc/fstab
-
-                    # Configure swappiness
-                    echo "Configuring swappiness..."
-                    echo 'vm.swappiness=10' > /etc/sysctl.d/99-swappiness.conf
-                    sysctl -p /etc/sysctl.d/99-swappiness.conf
-
-                    whiptail --title "Success" --msgbox "New swap file of ${swap_size}MB has been created and enabled." 8 50
-                    return 0
-                }
-
-                # Call the function
-                configure_swap
-                ;;
-            "9")
-                get_ipv4_addresses() {
-                    # Get all IPv4 addresses and their interface names
-                    ip -4 addr show | grep inet | grep -v '127.0.0.1' | awk '{print $2, "("$NF")"}'
-                }
-
-                # Function to set the default route
-                set_default_route() {
-                    local chosen_ip="$1"
-                    local interface=$(ip addr show | grep "$chosen_ip" | awk '{print $NF}')
-                    
-                    # Remove existing default routes
-                    ip route del default 2>/dev/null
-
-                    # Get the gateway for the chosen interface
-                    local gateway=$(ip route | grep "$interface" | grep -v 'default' | awk '{print $1}' | cut -d'/' -f1 | head -n1)
-                    
-                    # Add new default route
-                    if ip route add default via "$gateway" dev "$interface"; then
-                        return 0
-                    else
-                        return 1
-                    fi
-                }
-
-                # Get all IPv4 addresses
-                IPS=($(get_ipv4_addresses))
-
-                if [ ${#IPS[@]} -eq 0 ]; then
-                    whiptail --title "Error" --msgbox "No IPv4 addresses found!" 8 40
-                    exit 1
-                fi
-
-                # Create options array for whiptail
-                OPTIONS=()
-                for ((i=0; i<${#IPS[@]}; i+=2)); do
-                    OPTIONS+=("${IPS[i]}" "${IPS[i+1]}")
-                done
-
-                # Show menu with IP addresses
-                CHOSEN_IP=$(whiptail --title "Select Main IP Address" \
-                    --menu "Choose the IP address to use as main internet connection:" \
-                    20 60 10 \
-                    "${OPTIONS[@]}" \
-                    3>&1 1>&2 2>&3)
-
-                # Check if user canceled
-                if [ $? -ne 0 ]; then
-                    echo "Operation canceled by user"
-                    exit 1
-                fi
-
-                # Extract IP address without CIDR notation
-                CHOSEN_IP=$(echo $CHOSEN_IP | cut -d'/' -f1)
-
-                # Show confirmation dialog
-                if whiptail --title "Confirm Selection" --yesno "Are you sure you want to set $CHOSEN_IP as your main IP?" 8 60; then
-                    # Backup current network configuration
-                    cp /etc/netplan/00-installer-config.yaml /etc/netplan/00-installer-config.yaml.backup.$(date +%Y%m%d-%H%M%S)
-                    
-                    # Set the new default route
-                    if set_default_route "$CHOSEN_IP"; then
-                        whiptail --title "Success" --msgbox "Successfully set $CHOSEN_IP as main IP.\nA backup of your network configuration has been created." 10 60
-                        
-                        # Show current routing table
-                        echo "Current routing table:"
-                        ip route show
-                    else
-                        whiptail --title "Error" --msgbox "Failed to set $CHOSEN_IP as main IP.\nPlease check system logs for more information." 10 60
-                    fi
-                else
-                    echo "Operation canceled by user"
-                    exit 1
-                fi
-                ;;
-            "10")
+                ;;  
+            "11")
                 # Use whiptail to create a menu with two options
                 OPTION1=$(whiptail --title "Manage Reboot Cron Job" --menu "Choose an option:" 15 50 2 \
                 "1" "Add reboot cron job (1 AM UTC daily)" \
@@ -952,14 +960,360 @@ EOF"
                         break
                 fi               
                 ;;
-            "11")
-                if [ -f "RTT.py" ]; then
-                    rm RTT.py
-                fi
-                wget https://raw.githubusercontent.com/smhamirii/VPS-X-UI/refs/heads/main/RTT.py
-                python3 RTT.py
-                ;;  
             "12")
+                v2ray_monitor_module() {
+                    # Global Configuration
+                    local V2M_CONFIG_FILE="/etc/v2ray_monitor/config.conf"
+                    local V2M_SCRIPT_ENABLED_FILE="/etc/v2ray_monitor/script_enabled"
+                    local V2M_LOG_FILE="/var/log/v2ray_monitor.log"
+                    local V2M_LOG_ARCHIVE_DIR="/var/log/v2ray_monitor_archive"
+                    local V2M_LOCK_FILE="/var/run/v2ray_monitor.lock"
+                    local V2M_SCRIPT_PATH="$(readlink -f "${0}")"
+
+                    # Check for required dependencies
+                    v2m_check_dependencies() {
+                        local missing_deps=()
+                        for cmd in jq curl whiptail gzip; do
+                            if ! command -v "${cmd}" &> /dev/null; then
+                                missing_deps+=("${cmd}")
+                            fi
+                        done
+                        
+                        if [ "${#missing_deps[@]}" -ne 0 ]; then
+                            echo "Missing required dependencies: ${missing_deps[*]}"
+                            return 1
+                        fi
+                        return 0
+                    }
+
+                    # Create required directories
+                    v2m_setup_directories() {
+                        local dirs=("$(dirname "${V2M_CONFIG_FILE}")" "$(dirname "${V2M_LOG_FILE}")" "${V2M_LOG_ARCHIVE_DIR}")
+                        for dir in "${dirs[@]}"; do
+                            sudo mkdir -p "${dir}"
+                            sudo chmod 755 "${dir}"
+                        done
+                    }
+
+                    # Logging Function
+                    v2m_log_message() {
+                        local message="${1}"
+                        echo "$(date '+%Y-%m-%d %H:%M:%S') - ${message}" | sudo tee -a "${V2M_LOG_FILE}"
+                    }
+
+                    # Configuration Loading Function
+                    v2m_load_config() {
+                        if [[ -f "${V2M_CONFIG_FILE}" ]]; then
+                            # shellcheck source=/dev/null
+                            source "${V2M_CONFIG_FILE}"
+                            return 0
+                        else
+                            v2m_log_message "No existing configuration found"
+                            return 1
+                        fi
+                    }
+
+                    # Configuration Saving Function
+                    v2m_save_config() {
+                        sudo mkdir -p "$(dirname "${V2M_CONFIG_FILE}")"
+                        sudo tee "${V2M_CONFIG_FILE}" > /dev/null << EOF
+V2M_CLOUDFLARE_API_TOKEN="${V2M_CLOUDFLARE_API_TOKEN}"
+V2M_FULL_DOMAIN="${V2M_FULL_DOMAIN}"
+V2M_IRAN_IP="${V2M_IRAN_IP}"
+V2M_KHAREJ_IP="${V2M_KHAREJ_IP}"
+EOF
+
+                        sudo chmod 600 "${V2M_CONFIG_FILE}"
+                    }
+
+                    # Log Rotation Function
+                    v2m_rotate_logs() {
+                        if [[ -s "${V2M_LOG_FILE}" ]]; then
+                            sudo mkdir -p "${V2M_LOG_ARCHIVE_DIR}"
+                            local archive_log="${V2M_LOG_ARCHIVE_DIR}/v2ray_monitor_$(date '+%Y%m%d_%H%M%S').log.gz"
+                            sudo gzip -c "${V2M_LOG_FILE}" > "${archive_log}"
+                            sudo truncate -s 0 "${V2M_LOG_FILE}"
+                            find "${V2M_LOG_ARCHIVE_DIR}" -name "*.gz" -mtime +30 -delete
+                        fi
+                    }
+
+                    # IP Validation Function
+                    v2m_validate_ip() {
+                        local ip="${1}"
+                        if [[ ! "${ip}" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+                            return 1
+                        fi
+                        local IFS='.'
+                        read -ra ADDR <<< "${ip}"
+                        for i in "${ADDR[@]}"; do
+                            if [ "${i}" -lt 0 ] || [ "${i}" -gt 255 ]; then
+                                return 1
+                            fi
+                        done
+                        return 0
+                    }
+
+                    # Domain Validation Function
+                    v2m_validate_domain() {
+                        local domain="${1}"
+                        if [[ ! "${domain}" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z]{2,})+$ ]]; then
+                            return 1
+                        fi
+                        return 0
+                    }
+
+                    # Cloudflare DNS Update Function
+                    v2m_update_cloudflare_dns() {
+                        local new_ip="${1}"
+                        local max_retries=3
+                        local retry_count=0
+                        
+                        local subdomain
+                        local domain
+                        subdomain="$(echo "${V2M_FULL_DOMAIN}" | cut -d. -f1)"
+                        domain="$(echo "${V2M_FULL_DOMAIN}" | cut -d. -f2-)"
+
+                        while [ ${retry_count} -lt ${max_retries} ]; do
+                            local zone_response
+                            zone_response=$(curl -s -f -X GET "https://api.cloudflare.com/client/v4/zones?name=${domain}" \
+                                -H "Authorization: Bearer ${V2M_CLOUDFLARE_API_TOKEN}" \
+                                -H "Content-Type: application/json")
+                            
+                            if [ $? -ne 0 ]; then
+                                v2m_log_message "Failed to connect to Cloudflare API"
+                                ((retry_count++))
+                                sleep 5
+                                continue
+                            fi
+                            
+                            local zone_id
+                            zone_id=$(echo "${zone_response}" | jq -r '.result[0].id')
+
+                            if [[ -z "${zone_id}" || "${zone_id}" == "null" ]]; then
+                                v2m_log_message "Failed to retrieve zone ID for ${domain}"
+                                return 1
+                            fi
+
+                            local record_response
+                            record_response=$(curl -s -f -X GET "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records?name=${V2M_FULL_DOMAIN}" \
+                                -H "Authorization: Bearer ${V2M_CLOUDFLARE_API_TOKEN}" \
+                                -H "Content-Type: application/json")
+                                
+                            if [ $? -ne 0 ]; then
+                                v2m_log_message "Failed to retrieve DNS records"
+                                ((retry_count++))
+                                sleep 5
+                                continue
+                            fi
+                            
+                            local record_id
+                            record_id=$(echo "${record_response}" | jq -r '.result[0].id')
+
+                            if [[ -n "${record_id}" && "${record_id}" != "null" ]]; then
+                                local update_response
+                                update_response=$(curl -s -f -X PUT "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records/${record_id}" \
+                                    -H "Authorization: Bearer ${V2M_CLOUDFLARE_API_TOKEN}" \
+                                    -H "Content-Type: application/json" \
+                                    --data "{\"type\":\"A\",\"name\":\"${V2M_FULL_DOMAIN}\",\"content\":\"${new_ip}\",\"ttl\":120,\"proxied\":false}")
+                                    
+                                if [ $? -ne 0 ]; then
+                                    v2m_log_message "Failed to update DNS record"
+                                    ((retry_count++))
+                                    sleep 5
+                                    continue
+                                fi
+
+                                if echo "${update_response}" | jq -r '.success' | grep -q "true"; then
+                                    v2m_log_message "Updated DNS record for ${V2M_FULL_DOMAIN} to ${new_ip}"
+                                    return 0
+                                fi
+                            fi
+                            
+                            ((retry_count++))
+                            sleep 5
+                        done
+                        
+                        v2m_log_message "Failed to update DNS after ${max_retries} attempts"
+                        return 1
+                    }
+
+                    # Server Connectivity Check Function
+                    v2m_check_connectivity() {
+                        local target_ip="${1}"
+                        local attempt=0
+                        local max_attempts=3
+
+                        while [ ${attempt} -lt ${max_attempts} ]; do
+                            if ping -c 1 -W 1 "${target_ip}" &> /dev/null; then
+                                return 0
+                            fi
+                            ((attempt++))
+                            sleep 5
+                        done
+                        return 1
+                    }
+
+                    # Acquire lock function
+                    v2m_acquire_lock() {
+                        if ! mkdir "${V2M_LOCK_FILE}" 2>/dev/null; then
+                            if [ -d "${V2M_LOCK_FILE}" ]; then
+                                local pid
+                                pid=$(cat "${V2M_LOCK_FILE}/pid" 2>/dev/null)
+                                if [ -n "${pid}" ] && ! kill -0 "${pid}" 2>/dev/null; then
+                                    rm -rf "${V2M_LOCK_FILE}"
+                                    mkdir "${V2M_LOCK_FILE}"
+                                else
+                                    return 1
+                                fi
+                            fi
+                        fi
+                        echo $$ > "${V2M_LOCK_FILE}/pid"
+                        return 0
+                    }
+
+                    # Release lock function
+                    v2m_release_lock() {
+                        rm -rf "${V2M_LOCK_FILE}"
+                    }
+
+                    # Server Monitoring Function
+                    v2m_monitor_servers() {
+                        if ! v2m_acquire_lock; then
+                            v2m_log_message "Another instance is already running"
+                            return 1
+                        fi
+                        
+                        trap v2m_release_lock EXIT
+                        
+                        while [[ -f "${V2M_SCRIPT_ENABLED_FILE}" ]]; do
+                            if ! v2m_check_connectivity "${V2M_IRAN_IP}"; then
+                                v2m_log_message "Iran server unreachable. Switching to Kharej IP."
+                                v2m_update_cloudflare_dns "${V2M_KHAREJ_IP}"
+                            else
+                                v2m_log_message "Iran server reachable. Updating to Iran IP."
+                                v2m_update_cloudflare_dns "${V2M_IRAN_IP}"
+                            fi
+                            sleep 900
+                        done
+                    }
+
+                    # Setup Monitoring Configuration Function
+                    v2m_setup_monitoring() {
+                        V2M_CLOUDFLARE_API_TOKEN=$(whiptail --inputbox "Enter Cloudflare API Token:" 10 60 3>&1 1>&2 2>&3)
+                        if [[ -z "${V2M_CLOUDFLARE_API_TOKEN}" ]]; then
+                            whiptail --msgbox "API Token is required." 10 60
+                            return 1
+                        fi
+
+                        V2M_FULL_DOMAIN=$(whiptail --inputbox "Enter full domain (e.g., api.example.com):" 10 60 3>&1 1>&2 2>&3)
+                        if [[ -z "${V2M_FULL_DOMAIN}" ]] || ! v2m_validate_domain "${V2M_FULL_DOMAIN}"; then
+                            whiptail --msgbox "Invalid domain format." 10 60
+                            return 1
+                        fi
+
+                        V2M_IRAN_IP=$(whiptail --inputbox "Enter Iran Server IP:" 10 60 3>&1 1>&2 2>&3)
+                        if [[ -z "${V2M_IRAN_IP}" ]] || ! v2m_validate_ip "${V2M_IRAN_IP}"; then
+                            whiptail --msgbox "Invalid IP address format." 10 60
+                            return 1
+                        fi
+
+                        V2M_KHAREJ_IP=$(curl -s https://api.ipify.org)
+                        if [[ -z "${V2M_KHAREJ_IP}" ]] || ! v2m_validate_ip "${V2M_KHAREJ_IP}"; then
+                            whiptail --msgbox "Failed to detect VPS IP address." 10 60
+                            return 1
+                        fi
+
+                        v2m_save_config
+
+                        sudo touch "${V2M_SCRIPT_ENABLED_FILE}"
+                        nohup bash -c "$(declare -f v2m_monitor_servers v2m_log_message v2m_check_connectivity v2m_update_cloudflare_dns v2m_acquire_lock v2m_release_lock); v2m_monitor_servers" >> "${V2M_LOG_FILE}" 2>&1 &
+                    }
+
+                    # Main Menu Function
+                    v2m_main_menu() {
+                        while true; do
+                            local CHOICE
+                            CHOICE=$(whiptail --title "V2Ray Server Monitor" --menu "Choose an option:" 15 60 5 \
+                            "1" "Setup Monitoring" \
+                            "2" "Stop Monitoring" \
+                            "3" "View Logs" \
+                            "4" "Show Current Status" \
+                            "5" "Exit" 3>&1 1>&2 2>&3)
+
+                            case "${CHOICE}" in
+                                1) 
+                                    v2m_setup_monitoring
+                                    whiptail --msgbox "Monitoring setup complete. Monitoring started in background." 10 60
+                                    ;;
+                                2)
+                                    sudo rm -f "${V2M_SCRIPT_ENABLED_FILE}"
+                                    whiptail --msgbox "Monitoring stopped." 10 60
+                                    ;;
+                                3)
+                                    if [[ -f "${V2M_LOG_FILE}" ]]; then
+                                        whiptail --scrolltext --title "Monitor Logs" --textbox "${V2M_LOG_FILE}" 20 70
+                                    else
+                                        whiptail --msgbox "No logs found." 10 60
+                                    fi
+                                    ;;
+                                4)
+                                    local STATUS="Not Running"
+                                    [[ -f "${V2M_SCRIPT_ENABLED_FILE}" ]] && STATUS="Running"
+                                    
+                                    v2m_load_config
+                                    
+                                    whiptail --msgbox "Current Status:\n\nMonitoring: ${STATUS}\nDomain: ${V2M_FULL_DOMAIN}\nIran IP: ${V2M_IRAN_IP}\nKharej IP: ${V2M_KHAREJ_IP}" 15 60
+                                    ;;
+                                5)
+                                    return 0
+                                    ;;
+                            esac
+                        done
+                    }
+
+                    # Initialize the module
+                    if ! v2m_check_dependencies; then
+                        echo "Missing required dependencies. Please install them first."
+                        return 1
+                    fi
+
+                    v2m_setup_directories
+                    
+                    # Handle different operation modes
+                    case "${1}" in 
+                        start)
+                            v2m_setup_monitoring
+                            ;;
+                        stop)
+                            sudo rm -f "${V2M_SCRIPT_ENABLED_FILE}"
+                            ;;
+                        status)
+                            local STATUS="Not Running"
+                            [[ -f "${V2M_SCRIPT_ENABLED_FILE}" ]] && STATUS="Running"
+                            echo "Status: ${STATUS}"
+                            ;;
+                        rotate_logs)
+                            v2m_rotate_logs
+                            ;;
+                        menu)
+                            v2m_main_menu
+                            ;;
+                        *)
+                            v2m_main_menu
+                            ;;
+                    esac
+
+                    return 0
+                }
+
+                v2ray_monitor_module menu
+                # Example usage:
+                # v2ray_monitor_module "menu"    # To show the menu
+                # v2ray_monitor_module "start"   # To start monitoring
+                # v2ray_monitor_module "stop"    # To stop monitoring
+                # v2ray_monitor_module "status"  # To check status
+                ;;
+            "13")
                 # Exit option
                 exit 0
                 ;;                
