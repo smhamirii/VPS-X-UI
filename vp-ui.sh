@@ -1066,14 +1066,13 @@ EOF
                     local max_retries=3
                     local retry_count=0
                     
-                    # Extract domain parts correctly
-                    local main_domain subdomain
-                    subdomain=$(echo "${V2M_FULL_DOMAIN}" | cut -d. -f1)
-                    main_domain=$(echo "${V2M_FULL_DOMAIN}" | cut -d. -f2-)
-
+                    # Improved domain parsing
+                    local zone_name
+                    zone_name="parkseed2023.top"  # Hardcode your zone name
+                    
                     while [ ${retry_count} -lt ${max_retries} ]; do
                         local zone_response
-                        zone_response=$(curl -s -f -X GET "https://api.cloudflare.com/client/v4/zones?name=${main_domain}" \
+                        zone_response=$(curl -s -f -X GET "https://api.cloudflare.com/client/v4/zones?name=${zone_name}" \
                             -H "Authorization: Bearer ${V2M_CLOUDFLARE_API_TOKEN}" \
                             -H "Content-Type: application/json" 2>/dev/null)
                         
@@ -1088,10 +1087,11 @@ EOF
                         zone_id=$(echo "${zone_response}" | jq -r '.result[0].id')
 
                         if [[ -z "${zone_id}" || "${zone_id}" == "null" ]]; then
-                            v2m_log_message "Failed to retrieve zone ID for ${main_domain}"
+                            v2m_log_message "Failed to retrieve zone ID for ${zone_name}"
                             return 1
                         fi
 
+                        # Use full domain name for record lookup
                         local record_response
                         record_response=$(curl -s -f -X GET "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records?name=${V2M_FULL_DOMAIN}" \
                             -H "Authorization: Bearer ${V2M_CLOUDFLARE_API_TOKEN}" \
