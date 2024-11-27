@@ -1054,21 +1054,22 @@ EOF
                 # Domain Validation Function
                 v2m_validate_domain() {
                     local domain="${1}"
-                    if [[ ! "${domain}" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z]{2,})+$ ]]; then
+                    # Updated regex to properly handle subdomains
+                    if [[ ! "${domain}" =~ ^([a-zA-Z0-9]([-a-zA-Z0-9]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$ ]]; then
                         return 1
                     fi
                     return 0
                 }
 
-                # Cloudflare DNS Update Function
+                # Modified Cloudflare DNS Update Function
                 v2m_update_cloudflare_dns() {
                     local new_ip="${1}"
                     local max_retries=3
                     local retry_count=0
                     
-                    # Improved domain parsing
+                    # Extract zone name from full domain
                     local zone_name
-                    zone_name="parkseed2023.top"  # Hardcode your zone name
+                    zone_name=$(echo "${V2M_FULL_DOMAIN}" | awk -F. '{print $(NF-1)"."$NF}')
                     
                     while [ ${retry_count} -lt ${max_retries} ]; do
                         local zone_response
@@ -1091,7 +1092,6 @@ EOF
                             return 1
                         fi
 
-                        # Use full domain name for record lookup
                         local record_response
                         record_response=$(curl -s -f -X GET "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records?name=${V2M_FULL_DOMAIN}" \
                             -H "Authorization: Bearer ${V2M_CLOUDFLARE_API_TOKEN}" \
