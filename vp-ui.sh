@@ -1238,8 +1238,94 @@ EOF
 
                     v2m_save_config
 
+                    # Create a separate monitoring script
+                    cat > "/usr/local/bin/v2ray_monitor_daemon.sh" << 'EOF'
+#!/bin/bash
+
+V2M_CONFIG_FILE="/etc/v2ray_monitor/config.conf"
+V2M_SCRIPT_ENABLED_FILE="/etc/v2ray_monitor/script_enabled"
+V2M_LOG_FILE="/var/log/v2ray_monitor.log"
+V2M_LOCK_FILE="/var/run/v2ray_monitor.lock"
+
+# Load configuration
+source "${V2M_CONFIG_FILE}"
+
+log_message() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - ${1}" >> "${V2M_LOG_FILE}"
+}
+
+check_connectivity() {
+    ping -c 1 -W 3 "${1}" &> /dev/null
+    return $?
+}
+
+update_cloudflare_dns() {
+    local new_ip="${1}"
+    local zone_name
+    zone_name=$(echo "${V2M_FULL_DOMAIN}" | awk -F. '{print $(NF-1)"."$NF}')
+    
+    # Get zone ID
+    local zone_id
+    zone_id=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones?name=${zone_name}" \
+        -H "Authorization: Bearer ${V2M_CLOUDFLARE_API_TOKEN}" \
+        -H "Content-Type: application/json" | jq -r '.result[0].id')
+    
+    if [[ -z "${zone_id}" || "${zone_id}" == "null" ]]; then
+        log_message "Failed to get zone ID"
+        return 1
+    fi
+    
+    # Get record ID
+    local record_id
+    record_id=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records?name=${V2M_FULL_DOMAIN}" \
+        -H "Authorization: Bearer ${V2M_CLOUDFLARE_API_TOKEN}" \
+        -H "Content-Type: application/json" | jq -r '.result[0].id')
+    
+    if [[ -z "${record_id}" || "${record_id}" == "null" ]]; then
+        log_message "Failed to get record ID"
+        return 1
+    fi
+    
+    # Update record
+    local success
+    success=$(curl -s -X PUT "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records/${record_id}" \
+        -H "Authorization: Bearer ${V2M_CLOUDFLARE_API_TOKEN}" \
+        -H "Content-Type: application/json" \
+        --data "{\"type\":\"A\",\"name\":\"${V2M_FULL_DOMAIN}\",\"content\":\"${new_ip}\",\"ttl\":120,\"proxied\":false}" | jq -r '.success')
+    
+    if [[ "${success}" == "true" ]]; then
+        log_message "DNS updated to ${new_ip}"
+        return 0
+    else
+        log_message "Failed to update DNS"
+        return 1
+    fi
+}
+
+# Main monitoring loop
+log_message "Starting monitoring daemon"
+log_message "Domain: ${V2M_FULL_DOMAIN}"
+log_message "Iran IP: ${V2M_IRAN_IP}"
+log_message "Kharej IP: ${V2M_KHAREJ_IP}"
+
+while [[ -f "${V2M_SCRIPT_ENABLED_FILE}" ]]; do
+    if check_connectivity "${V2M_IRAN_IP}"; then
+        log_message "Iran server reachable, updating DNS to Iran IP"
+        update_cloudflare_dns "${V2M_IRAN_IP}"
+    else
+        log_message "Iran server unreachable, updating DNS to Kharej IP"
+        update_cloudflare_dns "${V2M_KHAREJ_IP}"
+    fi
+    sleep 300
+done
+EOF
+
+                    # Make the daemon script executable
+                    sudo chmod +x "/usr/local/bin/v2ray_monitor_daemon.sh"
+                    
+                    # Start monitoring
                     sudo touch "${V2M_SCRIPT_ENABLED_FILE}"
-                    nohup bash -c "$(declare -f v2m_monitor_servers v2m_log_message v2m_check_connectivity v2m_update_cloudflare_dns v2m_acquire_lock v2m_release_lock); v2m_monitor_servers" >> "${V2M_LOG_FILE}" 2>&1 &
+                    sudo nohup "/usr/local/bin/v2ray_monitor_daemon.sh" >> "${V2M_LOG_FILE}" 2>&1 &
                 }
 
                 v2m_show_status() {
