@@ -961,12 +961,12 @@ EOF"
                 fi               
                 ;;
             "12")
-                V2M_CONFIG_FILE="/etc/v2ray_monitor/config.conf"
-                V2M_SCRIPT_ENABLED_FILE="/etc/v2ray_monitor/script_enabled"
-                V2M_LOG_FILE="/var/log/v2ray_monitor.log"
-                V2M_LOG_ARCHIVE_DIR="/var/log/v2ray_monitor_archive"
-                V2M_LOCK_FILE="/var/run/v2ray_monitor.lock"
-                V2M_SCRIPT_PATH="$(readlink -f "${0}")"
+                export V2M_CONFIG_FILE="/etc/v2ray_monitor/config.conf"
+                export V2M_SCRIPT_ENABLED_FILE="/etc/v2ray_monitor/script_enabled"
+                export V2M_LOG_FILE="/var/log/v2ray_monitor.log"
+                export V2M_LOG_ARCHIVE_DIR="/var/log/v2ray_monitor_archive"
+                export V2M_LOCK_FILE="/var/run/v2ray_monitor.lock"
+                export V2M_SCRIPT_PATH="$(readlink -f "${0}")"
 
                 # Check for required dependencies
                 v2m_check_dependencies() {
@@ -1002,8 +1002,9 @@ EOF"
                 # Configuration Loading Function
                 v2m_load_config() {
                     if [[ -f "${V2M_CONFIG_FILE}" ]]; then
-                        # shellcheck source=/dev/null
-                        source "${V2M_CONFIG_FILE}"
+                        # Export variables from config
+                        export $(grep -v '^#' "${V2M_CONFIG_FILE}" | xargs)
+                        v2m_log_message "Configuration loaded successfully"
                         return 0
                     else
                         v2m_log_message "No existing configuration found"
@@ -1150,10 +1151,20 @@ EOF
                         return 1
                     fi
                     
+                    v2m_log_message "Starting monitoring with following configuration:"
+                    v2m_log_message "Domain: ${V2M_FULL_DOMAIN}"
+                    v2m_log_message "Iran IP: ${V2M_IRAN_IP}"
+                    v2m_log_message "Kharej IP: ${V2M_KHAREJ_IP}"
+                    
                     while [[ -f "${V2M_SCRIPT_ENABLED_FILE}" ]]; do
                         local current_ip
                         # Get current DNS record IP
+                        local zone_name
                         zone_name=$(echo "${V2M_FULL_DOMAIN}" | awk -F. '{print $(NF-1)"."$NF}')
+                        
+                        v2m_log_message "Checking zone: ${zone_name}"
+                        
+                        local zone_id
                         zone_id=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones?name=${zone_name}" \
                             -H "Authorization: Bearer ${V2M_CLOUDFLARE_API_TOKEN}" \
                             -H "Content-Type: application/json" | jq -r '.result[0].id')
@@ -1162,22 +1173,33 @@ EOF
                             current_ip=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records?name=${V2M_FULL_DOMAIN}" \
                                 -H "Authorization: Bearer ${V2M_CLOUDFLARE_API_TOKEN}" \
                                 -H "Content-Type: application/json" | jq -r '.result[0].content')
+                            v2m_log_message "Current DNS IP: ${current_ip}"
+                        else
+                            v2m_log_message "Failed to get zone ID for ${zone_name}"
                         fi
 
                         v2m_log_message "Checking Iran server connectivity..."
                         if v2m_check_connectivity "${V2M_IRAN_IP}"; then
                             v2m_log_message "Iran server reachable"
                             if [[ "${current_ip}" != "${V2M_IRAN_IP}" ]]; then
-                                v2m_log_message "Updating DNS to Iran IP"
-                                v2m_update_cloudflare_dns "${V2M_IRAN_IP}"
+                                v2m_log_message "Updating DNS to Iran IP: ${V2M_IRAN_IP}"
+                                if v2m_update_cloudflare_dns "${V2M_IRAN_IP}"; then
+                                    v2m_log_message "Successfully updated DNS to Iran IP"
+                                else
+                                    v2m_log_message "Failed to update DNS to Iran IP"
+                                fi
                             else
                                 v2m_log_message "DNS already pointing to Iran IP"
                             fi
                         else
                             v2m_log_message "Iran server unreachable"
                             if [[ "${current_ip}" != "${V2M_KHAREJ_IP}" ]]; then
-                                v2m_log_message "Updating DNS to Kharej IP"
-                                v2m_update_cloudflare_dns "${V2M_KHAREJ_IP}"
+                                v2m_log_message "Updating DNS to Kharej IP: ${V2M_KHAREJ_IP}"
+                                if v2m_update_cloudflare_dns "${V2M_KHAREJ_IP}"; then
+                                    v2m_log_message "Successfully updated DNS to Kharej IP"
+                                else
+                                    v2m_log_message "Failed to update DNS to Kharej IP"
+                                fi
                             else
                                 v2m_log_message "DNS already pointing to Kharej IP"
                             fi
