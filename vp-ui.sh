@@ -1042,550 +1042,257 @@ EOF"
                 fi               
                 ;;
             "12")
-                sudo apt-get install netcat-openbsd
+                # Cloudflare Dynamic DNS Monitoring Script with Service Management
 
-                # Set environment variables
-                export V2M_CONFIG_FILE="/etc/v2ray_monitor/config.conf"
-                export V2M_SCRIPT_ENABLED_FILE="/etc/v2ray_monitor/script_enabled"
-                export V2M_LOG_FILE="/var/log/v2ray_monitor.log"
-                export V2M_LOG_ARCHIVE_DIR="/var/log/v2ray_monitor_archive"
-                export V2M_LOCK_FILE="/var/run/v2ray_monitor.lock"
-                export V2M_SCRIPT_PATH="$(readlink -f "${0}")"
+                # Configuration and script paths
+                SCRIPT_NAME="cloudflare-ddns"
+                SCRIPT_PATH="/usr/local/bin/${SCRIPT_NAME}.sh"
+                SERVICE_PATH="/etc/systemd/system/${SCRIPT_NAME}.service"
+                CONFIG_PATH="/etc/${SCRIPT_NAME}.conf"
 
-                # Check for required dependencies
-                v2m_check_dependencies() {
-                    local missing_deps=()
-                    for cmd in jq curl whiptail gzip; do
-                        if ! command -v "${cmd}" &> /dev/null; then
-                            missing_deps+=("${cmd}")
+                # Required dependencies
+                REQUIRED_PACKAGES=("jq" "curl" "whiptail")
+
+                # Check and install dependencies
+                check_dependencies() {
+                    for pkg in "${REQUIRED_PACKAGES[@]}"; do
+                        if ! dpkg -s "$pkg" >/dev/null 2>&1; then
+                            if ! whiptail --title "Dependencies Missing" --yesno "Package $pkg is not installed. Install now?" 10 60; then
+                                whiptail --msgbox "Cannot proceed without required packages." 10 60
+                                exit 1
+                            fi
+                            sudo apt-get update
+                            sudo apt-get install -y "$pkg"
                         fi
                     done
-                    
-                    if [ "${#missing_deps[@]}" -ne 0 ]; then
-                        echo "Missing required dependencies: ${missing_deps[*]}"
-                        return 1
-                    fi
-                    return 0
                 }
 
-                # Create required directories
-                v2m_setup_directories() {
-                    local dirs=("$(dirname "${V2M_CONFIG_FILE}")" "$(dirname "${V2M_LOG_FILE}")" "${V2M_LOG_ARCHIVE_DIR}")
-                    for dir in "${dirs[@]}"; do
-                        sudo mkdir -p "${dir}"
-                        sudo chmod 755 "${dir}"
-                    done
-                }
-
-                # Logging Function
-                v2m_log_message() {
-                    local message="${1}"
-                    echo "$(date '+%Y-%m-%d %H:%M:%S') - ${message}" >> "${V2M_LOG_FILE}"
-                }
-
-                # Configuration Loading Function
-                v2m_load_config() {
-                    if [[ -f "${V2M_CONFIG_FILE}" ]]; then
-                        # Export variables from config
-                        export $(grep -v '^#' "${V2M_CONFIG_FILE}" | xargs)
-                        v2m_log_message "Configuration loaded successfully"
-                        return 0
-                    else
-                        v2m_log_message "No existing configuration found"
-                        return 1
-                    fi
-                }
-
-                # Configuration Saving Function
-                v2m_save_config() {
-                    sudo mkdir -p "$(dirname "${V2M_CONFIG_FILE}")"
-                    sudo tee "${V2M_CONFIG_FILE}" > /dev/null << EOF
-V2M_CLOUDFLARE_API_TOKEN="${V2M_CLOUDFLARE_API_TOKEN}"
-V2M_FULL_DOMAIN="${V2M_FULL_DOMAIN}"
-V2M_IRAN_IP="${V2M_IRAN_IP}"
-V2M_KHAREJ_IP="${V2M_KHAREJ_IP}"
+                # Save configuration to a config file
+                save_configuration() {
+                    # Create config file
+                    sudo tee "$CONFIG_PATH" > /dev/null << EOF
+CF_API_KEY="$CF_API_KEY"
+DOMAIN="$DOMAIN"
+SUBDOMAIN="$SUBDOMAIN"
+PRIMARY_SERVER_IP="$PRIMARY_SERVER_IP"
+BACKUP_SERVER_IP="$BACKUP_SERVER_IP"
+ZONE_ID="$ZONE_ID"
 EOF
-
-                    sudo chmod 600 "${V2M_CONFIG_FILE}"
+                    sudo chmod 600 "$CONFIG_PATH"
                 }
 
-                # Log Rotation Function
-                v2m_rotate_logs() {
-                    if [[ -s "${V2M_LOG_FILE}" ]]; then
-                        sudo mkdir -p "${V2M_LOG_ARCHIVE_DIR}"
-                        local archive_log="${V2M_LOG_ARCHIVE_DIR}/v2ray_monitor_$(date '+%Y%m%d_%H%M%S').log.gz"
-                        sudo gzip -c "${V2M_LOG_FILE}" > "${archive_log}"
-                        sudo truncate -s 0 "${V2M_LOG_FILE}"
-                        find "${V2M_LOG_ARCHIVE_DIR}" -name "*.gz" -mtime +30 -delete
-                    fi
+                # Collect configuration from user
+                get_configuration() {
+                    # Cloudflare API Configuration
+                    CF_API_KEY=$(whiptail --inputbox "Enter Cloudflare API Key" 10 60 3>&1 1>&2 2>&3)
+                    DOMAIN=$(whiptail --inputbox "Enter Domain (e.g., example.com)" 10 60 3>&1 1>&2 2>&3)
+                    SUBDOMAIN=$(whiptail --inputbox "Enter Subdomain (e.g., server)" 10 60 3>&1 1>&2 2>&3)
+                    
+                    # Server IPs
+                    PRIMARY_SERVER_IP=$(curl -s https://api.ipify.org)
+                    BACKUP_SERVER_IP=$(whiptail --inputbox "Enter Iran Server IP" 10 60 3>&1 1>&2 2>&3)
                 }
 
-                # IP Validation Function
-                v2m_validate_ip() {
-                    local ip="${1}"
-                    if [[ ! "${ip}" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
-                        return 1
-                    fi
-                    local IFS='.'
-                    read -ra ADDR <<< "${ip}"
-                    for i in "${ADDR[@]}"; do
-                        if [ "${i}" -lt 0 ] || [ "${i}" -gt 255 ]; then
-                            return 1
-                        fi
-                    done
-                    return 0
-                }
-
-                # Domain Validation Function
-                v2m_validate_domain() {
-                    local domain="${1}"
-                    # Updated regex to properly handle subdomains
-                    if [[ ! "${domain}" =~ ^([a-zA-Z0-9]([-a-zA-Z0-9]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$ ]]; then
-                        return 1
-                    fi
-                    return 0
-                }
-
-                # Modified Cloudflare DNS Update Function
-                v2m_update_cloudflare_dns() {
-                    local new_ip="${1}"
-                    local zone_name
-                    zone_name=$(echo "${V2M_FULL_DOMAIN}" | awk -F. '{print $(NF-1)"."$NF}')
+                # Automatically find Zone ID
+                find_zone_id() {
+                    ZONE_RESPONSE=$(curl -s -X GET \
+                        "https://api.cloudflare.com/client/v4/zones?name=$DOMAIN" \
+                        -H "Authorization: Bearer $CF_API_KEY" \
+                        -H "Content-Type: application/json")
                     
-                    # Get zone ID
-                    local zone_id
-                    zone_id=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones?name=${zone_name}" \
-                        -H "Authorization: Bearer ${V2M_CLOUDFLARE_API_TOKEN}" \
-                        -H "Content-Type: application/json" | jq -r '.result[0].id')
+                    ZONE_ID=$(echo "$ZONE_RESPONSE" | jq -r '.result[0].id')
                     
-                    if [[ -z "${zone_id}" || "${zone_id}" == "null" ]]; then
-                        v2m_log_message "Failed to get zone ID"
-                        return 1
-                    fi
-                    
-                    # Get record ID
-                    local record_id
-                    record_id=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records?name=${V2M_FULL_DOMAIN}" \
-                        -H "Authorization: Bearer ${V2M_CLOUDFLARE_API_TOKEN}" \
-                        -H "Content-Type: application/json" | jq -r '.result[0].id')
-                    
-                    if [[ -z "${record_id}" || "${record_id}" == "null" ]]; then
-                        v2m_log_message "Failed to get record ID"
-                        return 1
-                    fi
-                    
-                    # Update record
-                    local success
-                    success=$(curl -s -X PUT "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records/${record_id}" \
-                        -H "Authorization: Bearer ${V2M_CLOUDFLARE_API_TOKEN}" \
-                        -H "Content-Type: application/json" \
-                        --data "{\"type\":\"A\",\"name\":\"${V2M_FULL_DOMAIN}\",\"content\":\"${new_ip}\",\"ttl\":120,\"proxied\":false}" | jq -r '.success')
-                    
-                    if [[ "${success}" == "true" ]]; then
-                        v2m_log_message "DNS updated to ${new_ip}"
-                        return 0
-                    else
-                        v2m_log_message "Failed to update DNS"
-                        return 1
+                    if [ -z "$ZONE_ID" ] || [ "$ZONE_ID" == "null" ]; then
+                        whiptail --msgbox "Failed to retrieve Zone ID. Check your API key and domain." 10 60
+                        exit 1
                     fi
                 }
 
-                # Server Connectivity Check Function
-                v2m_check_connectivity() {
-                    local target_ip="${1}"
-                    local success=0
-                    local ping_count=3
-                    local tcp_ports=(80 443)
-                    
-                    # Multiple ping attempts
-                    for ((i=1; i<=ping_count; i++)); do
-                        if ping -c 1 -W 3 "${target_ip}" &> /dev/null; then
-                            ((success++))
-                        fi
-                        sleep 1
-                    done
+                # Create systemd service file
+                create_service_file() {
+                    sudo tee "$SERVICE_PATH" > /dev/null << EOF
+[Unit]
+Description=Cloudflare Dynamic DNS Monitoring Service
+After=network.target
 
-                    # TCP connection test
-                    for port in "${tcp_ports[@]}"; do
-                        if nc -zv -w3 "${target_ip}" "${port}" &> /dev/null; then
-                            ((success++))
-                        fi
-                    done
+[Service]
+Type=simple
+ExecStart=/bin/bash $SCRIPT_PATH monitor
+Restart=always
+RestartSec=5
+User=root
 
-                    # Need at least 3 successful checks (combination of ping and TCP)
-                    [[ ${success} -ge 3 ]]
-                    return $?
+[Install]
+WantedBy=multi-user.target
+EOF
                 }
 
-                # Acquire lock function
-                v2m_acquire_lock() {
-                    if ! mkdir "${V2M_LOCK_FILE}" 2>/dev/null; then
-                        if [ -d "${V2M_LOCK_FILE}" ]; then
-                            local pid
-                            pid=$(cat "${V2M_LOCK_FILE}/pid" 2>/dev/null)
-                            if [ -n "${pid}" ] && ! kill -0 "${pid}" 2>/dev/null; then
-                                rm -rf "${V2M_LOCK_FILE}"
-                                mkdir "${V2M_LOCK_FILE}"
-                            else
-                                return 1
-                            fi
-                        fi
-                    fi
-                    echo $$ > "${V2M_LOCK_FILE}/pid"
-                    return 0
+                # Install script and service
+                install_service() {
+                    # Save current script to system path
+                    sudo cp "$0" "$SCRIPT_PATH"
+                    sudo chmod +x "$SCRIPT_PATH"
+
+                    # Create service file
+                    create_service_file
+
+                    # Reload systemd, enable and start service
+                    sudo systemctl daemon-reload
+                    sudo systemctl enable "$SCRIPT_NAME.service"
+                    sudo systemctl start "$SCRIPT_NAME.service"
+
+                    whiptail --msgbox "Service installed and started successfully!" 10 60
                 }
 
-                # Release lock function
-                v2m_release_lock() {
-                    rm -rf "${V2M_LOCK_FILE}"
+                # Uninstall service
+                uninstall_service() {
+                    # Stop and disable service
+                    sudo systemctl stop "$SCRIPT_NAME.service"
+                    sudo systemctl disable "$SCRIPT_NAME.service"
+
+                    # Remove files
+                    sudo rm -f "$SERVICE_PATH" "$SCRIPT_PATH" "$CONFIG_PATH"
+
+                    # Reload systemd
+                    sudo systemctl daemon-reload
+
+                    whiptail --msgbox "Service removed successfully!" 10 60
                 }
 
-                # Server Monitoring Function
-                v2m_monitor_servers() {
-                    if ! v2m_acquire_lock; then
-                        v2m_log_message "Another instance is running"
-                        return 1
-                    fi
-                    
-                    trap v2m_release_lock EXIT
-                    
-                    # Load configuration at the start
-                    if ! v2m_load_config; then
-                        v2m_log_message "Failed to load configuration"
-                        return 1
-                    fi
-                    
-                    v2m_log_message "Starting monitoring with following configuration:"
-                    v2m_log_message "Domain: ${V2M_FULL_DOMAIN}"
-                    v2m_log_message "Iran IP: ${V2M_IRAN_IP}"
-                    v2m_log_message "Kharej IP: ${V2M_KHAREJ_IP}"
-                    
-                    while [[ -f "${V2M_SCRIPT_ENABLED_FILE}" ]]; do
-                        local current_ip
-                        # Get current DNS record IP
-                        local zone_name
-                        zone_name=$(echo "${V2M_FULL_DOMAIN}" | awk -F. '{print $(NF-1)"."$NF}')
-                        
-                        v2m_log_message "Checking zone: ${zone_name}"
-                        
-                        local zone_id
-                        zone_id=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones?name=${zone_name}" \
-                            -H "Authorization: Bearer ${V2M_CLOUDFLARE_API_TOKEN}" \
-                            -H "Content-Type: application/json" | jq -r '.result[0].id')
-                            
-                        if [[ -n "${zone_id}" && "${zone_id}" != "null" ]]; then
-                            current_ip=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records?name=${V2M_FULL_DOMAIN}" \
-                                -H "Authorization: Bearer ${V2M_CLOUDFLARE_API_TOKEN}" \
-                                -H "Content-Type: application/json" | jq -r '.result[0].content')
-                            v2m_log_message "Current DNS IP: ${current_ip}"
-                        else
-                            v2m_log_message "Failed to get zone ID for ${zone_name}"
-                        fi
+                # Monitoring function
+                monitor_servers() {
+                    # Source config file
+                    source "$CONFIG_PATH"
 
-                        v2m_log_message "Checking Iran server connectivity..."
-                        if v2m_check_connectivity "${V2M_IRAN_IP}"; then
-                            v2m_log_message "Iran server reachable"
-                            if [[ "${current_ip}" != "${V2M_IRAN_IP}" ]]; then
-                                v2m_log_message "Updating DNS to Iran IP: ${V2M_IRAN_IP}"
-                                if v2m_update_cloudflare_dns "${V2M_IRAN_IP}"; then
-                                    v2m_log_message "Successfully updated DNS to Iran IP"
-                                else
-                                    v2m_log_message "Failed to update DNS to Iran IP"
-                                fi
-                            else
-                                v2m_log_message "DNS already pointing to Iran IP"
+                    # Global variables to track server status
+                    CURRENT_SERVER_IP=""
+                    BACKUP_SERVER_LAST_STATE="unreachable"
+
+                    while true; do
+                        # Ping backup server
+                        if ping -c 3 "$BACKUP_SERVER_IP" > /dev/null 2>&1; then
+                            # If backup server was previously unreachable, switch to it
+                            if [ "$BACKUP_SERVER_LAST_STATE" == "unreachable" ] || [ "$CURRENT_SERVER_IP" != "$BACKUP_SERVER_IP" ]; then
+                                update_dns_record "$BACKUP_SERVER_IP"
+                                BACKUP_SERVER_LAST_STATE="reachable"
                             fi
                         else
-                            v2m_log_message "Iran server unreachable"
-                            if [[ "${current_ip}" != "${V2M_KHAREJ_IP}" ]]; then
-                                v2m_log_message "Updating DNS to Kharej IP: ${V2M_KHAREJ_IP}"
-                                if v2m_update_cloudflare_dns "${V2M_KHAREJ_IP}"; then
-                                    v2m_log_message "Successfully updated DNS to Kharej IP"
-                                else
-                                    v2m_log_message "Failed to update DNS to Kharej IP"
-                                fi
-                            else
-                                v2m_log_message "DNS already pointing to Kharej IP"
+                            # If current server is backup server, switch back to primary
+                            if [ "$CURRENT_SERVER_IP" == "$BACKUP_SERVER_IP" ]; then
+                                update_dns_record "$PRIMARY_SERVER_IP"
+                                BACKUP_SERVER_LAST_STATE="unreachable"
                             fi
                         fi
                         
-                        v2m_log_message "Waiting 300 seconds before next check..."
+                        # Wait for 5 minutes
                         sleep 300
                     done
                 }
 
-                # Setup Monitoring Configuration Function
-                v2m_setup_monitoring() {
-                    V2M_CLOUDFLARE_API_TOKEN=$(whiptail --inputbox "Enter Cloudflare API Token:" 10 60 3>&1 1>&2 2>&3)
-                    if [[ -z "${V2M_CLOUDFLARE_API_TOKEN}" ]]; then
-                        whiptail --msgbox "API Token is required." 10 60
-                        return 1
-                    fi
-
-                    V2M_FULL_DOMAIN=$(whiptail --inputbox "Enter full domain (e.g., api.example.com):" 10 60 3>&1 1>&2 2>&3)
-                    if [[ -z "${V2M_FULL_DOMAIN}" ]] || ! v2m_validate_domain "${V2M_FULL_DOMAIN}"; then
-                        whiptail --msgbox "Invalid domain format." 10 60
-                        return 1
-                    fi
-
-                    V2M_IRAN_IP=$(whiptail --inputbox "Enter Iran Server IP:" 10 60 3>&1 1>&2 2>&3)
-                    if [[ -z "${V2M_IRAN_IP}" ]] || ! v2m_validate_ip "${V2M_IRAN_IP}"; then
-                        whiptail --msgbox "Invalid IP address format." 10 60
-                        return 1
-                    fi
-
-                    V2M_KHAREJ_IP=$(curl -s https://api.ipify.org)
-                    if [[ -z "${V2M_KHAREJ_IP}" ]] || ! v2m_validate_ip "${V2M_KHAREJ_IP}"; then
-                        whiptail --msgbox "Failed to detect VPS IP address." 10 60
-                        return 1
-                    fi
-
-                    v2m_save_config
-
-                    # Create daemon script with enhanced connectivity check
-                    cat > "/usr/local/bin/v2ray_monitor_daemon.sh" << 'EOF'
-#!/bin/bash
-
-V2M_CONFIG_FILE="/etc/v2ray_monitor/config.conf"
-V2M_SCRIPT_ENABLED_FILE="/etc/v2ray_monitor/script_enabled"
-V2M_LOG_FILE="/var/log/v2ray_monitor.log"
-V2M_LOCK_FILE="/var/run/v2ray_monitor.lock"
-
-# Load configuration
-source "${V2M_CONFIG_FILE}"
-
-log_message() {
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - ${1}" >> "${V2M_LOG_FILE}"
-}
-
-# Enhanced connectivity check
-check_connectivity() {
-    local target_ip="${1}"
-    local success=0
-    local ping_count=3
-    local tcp_ports=(80 443)
-    
-    # Multiple ping attempts
-    for ((i=1; i<=ping_count; i++)); do
-        if ping -c 1 -W 3 "${target_ip}" &> /dev/null; then
-            ((success++))
-        fi
-        sleep 1
-    done
-
-    # TCP connection test
-    for port in "${tcp_ports[@]}"; do
-        if nc -zv -w3 "${target_ip}" "${port}" &> /dev/null; then
-            ((success++))
-        fi
-    done
-
-    # Need at least 3 successful checks
-    [[ ${success} -ge 3 ]]
-    return $?
-}
-
-update_cloudflare_dns() {
-    local new_ip="${1}"
-    local current_ip
-    local zone_name
-    zone_name=$(echo "${V2M_FULL_DOMAIN}" | awk -F. '{print $(NF-1)"."$NF}')
-    
-    # First get current IP
-    local zone_id
-    zone_id=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones?name=${zone_name}" \
-        -H "Authorization: Bearer ${V2M_CLOUDFLARE_API_TOKEN}" \
-        -H "Content-Type: application/json" | jq -r '.result[0].id')
-    
-    if [[ -n "${zone_id}" && "${zone_id}" != "null" ]]; then
-        current_ip=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records?name=${V2M_FULL_DOMAIN}" \
-            -H "Authorization: Bearer ${V2M_CLOUDFLARE_API_TOKEN}" \
-            -H "Content-Type: application/json" | jq -r '.result[0].content')
-    fi
-
-    # Only update if IP is different
-    if [[ "${current_ip}" == "${new_ip}" ]]; then
-        log_message "DNS already pointing to ${new_ip}, no update needed"
-        return 0
-    fi
-    
-    # Get record ID
-    local record_id
-    record_id=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records?name=${V2M_FULL_DOMAIN}" \
-        -H "Authorization: Bearer ${V2M_CLOUDFLARE_API_TOKEN}" \
-        -H "Content-Type: application/json" | jq -r '.result[0].id')
-    
-    if [[ -z "${record_id}" || "${record_id}" == "null" ]]; then
-        log_message "Failed to get record ID"
-        return 1
-    fi
-    
-    # Update record
-    local success
-    success=$(curl -s -X PUT "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records/${record_id}" \
-        -H "Authorization: Bearer ${V2M_CLOUDFLARE_API_TOKEN}" \
-        -H "Content-Type: application/json" \
-        --data "{\"type\":\"A\",\"name\":\"${V2M_FULL_DOMAIN}\",\"content\":\"${new_ip}\",\"ttl\":120,\"proxied\":false}" | jq -r '.success')
-    
-    if [[ "${success}" == "true" ]]; then
-        log_message "DNS updated successfully from ${current_ip} to ${new_ip}"
-        return 0
-    else
-        log_message "Failed to update DNS from ${current_ip} to ${new_ip}"
-        return 1
-    fi
-}
-
-# Main monitoring loop
-log_message "Starting monitoring daemon"
-log_message "Domain: ${V2M_FULL_DOMAIN}"
-log_message "Iran IP: ${V2M_IRAN_IP}"
-log_message "Kharej IP: ${V2M_KHAREJ_IP}"
-
-while [[ -f "${V2M_SCRIPT_ENABLED_FILE}" ]]; do
-    if check_connectivity "${V2M_IRAN_IP}"; then
-        log_message "Iran server reachable, checking DNS update"
-        update_cloudflare_dns "${V2M_IRAN_IP}"
-    else
-        log_message "Iran server unreachable, checking DNS update"
-        update_cloudflare_dns "${V2M_KHAREJ_IP}"
-    fi
-    sleep 300
-done
-EOF
-
-                    # Make the daemon script executable
-                    sudo chmod +x "/usr/local/bin/v2ray_monitor_daemon.sh"
+                # Update DNS record via Cloudflare API
+                update_dns_record() {
+                    local TARGET_IP=$1
                     
-                    # Start monitoring in background
-                    sudo touch "${V2M_SCRIPT_ENABLED_FILE}"
-                    sudo "/usr/local/bin/v2ray_monitor_daemon.sh" > /dev/null 2>&1 &
+                    # Get existing DNS record
+                    RECORD_RESPONSE=$(curl -s -X GET \
+                        "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?type=A&name=$SUBDOMAIN.$DOMAIN" \
+                        -H "Authorization: Bearer $CF_API_KEY" \
+                        -H "Content-Type: application/json")
                     
-                    # Small delay to ensure the process starts
-                    sleep 2
+                    RECORD_ID=$(echo "$RECORD_RESPONSE" | jq -r '.result[0].id')
                     
-                    # Return success
-                    return 0
+                    # Update DNS record
+                    UPDATE_RESPONSE=$(curl -s -X PUT \
+                        "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$RECORD_ID" \
+                        -H "Authorization: Bearer $CF_API_KEY" \
+                        -H "Content-Type: application/json" \
+                        --data "{\"type\":\"A\",\"name\":\"$SUBDOMAIN\",\"content\":\"$TARGET_IP\",\"ttl\":1,\"proxied\":false}")
+                    
+                    # Log and notify result
+                    if echo "$UPDATE_RESPONSE" | jq -e '.success' > /dev/null; then
+                        echo "DNS updated to $TARGET_IP" | systemd-cat -t cloudflare-ddns -p info
+                        CURRENT_SERVER_IP="$TARGET_IP"
+                    else
+                        echo "DNS update failed" | systemd-cat -t cloudflare-ddns -p err
+                    fi
                 }
 
-                v2m_show_status() {
-                    local STATUS="Not Running"
-                    local CURRENT_IP=""
-                    local IRAN_STATUS="unchecked"
+                # Show Status
+                show_status(){
+
+                    STATUS=$(systemctl is-active "$SCRIPT_NAME.service")
                     
-                    if [[ -f "${V2M_SCRIPT_ENABLED_FILE}" ]]; then
-                        STATUS="Running"
-                        # Check current DNS record
-                        if v2m_load_config; then
-                            local zone_name
-                            zone_name=$(echo "${V2M_FULL_DOMAIN}" | awk -F. '{print $(NF-1)"."$NF}')
-                            
-                            local zone_response
-                            zone_response=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones?name=${zone_name}" \
-                                -H "Authorization: Bearer ${V2M_CLOUDFLARE_API_TOKEN}" \
-                                -H "Content-Type: application/json")
-                            
-                            local zone_id
-                            zone_id=$(echo "${zone_response}" | jq -r '.result[0].id')
-                            
-                            if [[ -n "${zone_id}" && "${zone_id}" != "null" ]]; then
-                                local record_response
-                                record_response=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records?name=${V2M_FULL_DOMAIN}" \
-                                    -H "Authorization: Bearer ${V2M_CLOUDFLARE_API_TOKEN}" \
-                                    -H "Content-Type: application/json")
-                                
-                                CURRENT_IP=$(echo "${record_response}" | jq -r '.result[0].content')
-                            fi
-                        fi
+                    CURRENT_IP=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?name=$SUBDOMAIN.$DOMAIN" \
+                        -H "Authorization: Bearer $CF_API_KEY" \
+                        -H "Content-Type: application/json" | jq -r '.result[0].content')
                         
-                        # Check Iran server status
-                        if v2m_check_connectivity "${V2M_IRAN_IP}"; then
-                            IRAN_STATUS="reachable"
-                        else
-                            IRAN_STATUS="unreachable"
-                        fi
-                    fi
-                    
                     # Return status message
                     echo "Current Status:"
                     echo "Monitoring: ${STATUS}"
-                    echo "Domain: ${V2M_FULL_DOMAIN}"
-                    echo "Iran IP: ${V2M_IRAN_IP} (${IRAN_STATUS})"
-                    echo "Kharej IP: ${V2M_KHAREJ_IP}"
-                    echo "Currently Set IP: ${CURRENT_IP:-Unknown}"
+                    echo "Domain: $SUBDOMAIN.$DOMAIN"
+                    echo "Iran IP: ${BACKUP_SERVER_IP} (${IRAN_STATUS})"
+                    echo "Kharej IP: ${PRIMARY_SERVER_IP}"
+                    echo "Currently Set IP: ${CURRENT_IP}"
+                            
                 }
 
-                # Main Menu Function
-                v2m_main_menu() {
-                    while true; do
-                        local CHOICE
-                        CHOICE=$(whiptail --title "V2Ray Server Monitor" --menu "Choose an option:" 15 60 5 \
-                        "1" "Setup Monitoring" \
-                        "2" "Stop Monitoring" \
-                        "3" "View Logs" \
-                        "4" "Show Current Status" \
-                        "5" "Exit" 3>&1 1>&2 2>&3)
+                # Main menu
+                main_menu() {
+                    CHOICE=$(whiptail --title "Cloudflare Dynamic DNS Management" --menu "Choose an option:" 15 60 6 \
+                        "1" "Install and Configure Service" \
+                        "2" "Start Service" \
+                        "3" "Stop Service" \
+                        "4" "Restart Service" \
+                        "5" "Check Service Status" \
+                        "6" "Remove Service" \
+                        "7" "Exit" 3>&1 1>&2 2>&3)
 
-                        case "${CHOICE}" in
-                            1) 
-                                v2m_setup_monitoring
-                                whiptail --msgbox "Monitoring setup complete. Monitoring started in background." 10 60
-                                ;;
-                            2)
-                                sudo rm -f "${V2M_SCRIPT_ENABLED_FILE}"
-                                whiptail --msgbox "Monitoring stopped." 10 60
-                                ;;
-                            3)
-                                if [[ -f "${V2M_LOG_FILE}" ]]; then
-                                    whiptail --scrolltext --title "Monitor Logs" --textbox "${V2M_LOG_FILE}" 20 70
-                                else
-                                    whiptail --msgbox "No logs found." 10 60
-                                fi
-                                ;;
-                            4)
-                                local status_text
-                                status_text=$(v2m_show_status)
-                                whiptail --title "Current Status" --msgbox "$status_text" 15 60
-                                ;;
-                            5)
-                                return 0
-                                ;;
-                        esac
-                    done
+                    case $CHOICE in
+                        1)
+                            check_dependencies
+                            get_configuration
+                            find_zone_id
+                            save_configuration
+                            install_service
+                            ;;
+                        2)
+                            sudo systemctl start "$SCRIPT_NAME.service"
+                            whiptail --msgbox "Service started!" 10 60
+                            ;;
+                        3)
+                            sudo systemctl stop "$SCRIPT_NAME.service"
+                            whiptail --msgbox "Service stopped!" 10 60
+                            ;;
+                        4)
+                            sudo systemctl restart "$SCRIPT_NAME.service"
+                            whiptail --msgbox "Service restarted!" 10 60
+                            ;;
+                        5)
+                            local status_text
+                            status_text=$(show_status)
+                            whiptail --title "Current Status" --msgbox "$status_text" 10 60
+                            ;;
+                        6)
+                            uninstall_service
+                            ;;
+                        7)
+                            exit 0
+                            ;;
+                        *)
+                            whiptail --msgbox "Invalid option" 10 60
+                            ;;
+                    esac
                 }
 
-                # Main script execution
-                if ! v2m_check_dependencies; then
-                    echo "Missing required dependencies. Please install them first."
-                    exit 1
-                fi
-
-                v2m_setup_directories
-
-                # Handle different operation modes
-                case "${1}" in 
-                    start)
-                        v2m_setup_monitoring
-                        ;;
-                    stop)
-                        sudo rm -f "${V2M_SCRIPT_ENABLED_FILE}"
-                        ;;
-                    status)
-                        local STATUS="Not Running"
-                        [[ -f "${V2M_SCRIPT_ENABLED_FILE}" ]] && STATUS="Running"
-                        echo "Status: ${STATUS}"
-                        ;;
-                    rotate_logs)
-                        v2m_rotate_logs
-                        ;;
-                    menu)
-                        v2m_main_menu
+                # Script entry point
+                case "$1" in 
+                    monitor)
+                        monitor_servers
                         ;;
                     *)
-                        v2m_main_menu
+                        main_menu
                         ;;
                 esac
-
                 ;;
             "13")
                 # Exit option
