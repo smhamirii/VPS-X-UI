@@ -41,21 +41,22 @@ while true; do
     while true; do
         # main directory
         cd
+        check="✅"
 
         # Main menu
         var7=$(whiptail --title "SAMIR VPN Creator" --menu "Welcome to Samir VPN Creator, choose an option:" 20 80 13 \
-            "1" "Server Upgrade✅" \
+            "1" "Server Upgrade$check" \
             "2" "Internet Connection" \
-            "3" "X-UI SERVICE✅" \
+            "3" "X-UI SERVICE$check" \
             "4" "Reverse Tunnel (Old method)" \
-            "5" "Reverse Tunnel (New method)✅" \
-            "6" "Cetificate + Change IP✅" \
-            "7" "Virtual RAM✅" \
+            "5" "Reverse Tunnel (New method)$check" \
+            "6" "Cetificate + Change IP$check" \
+            "7" "Virtual RAM$check" \
             "8" "Change Main IP(Not Tested)" \
             "9" "SSL Certificate" \
             "10" "Change Subdomain IP" \
             "11" "Auto Restart Server" \
-            "12" "Auto Server Change(should run on kharej)✅" \
+            "12" "Auto Server Change(should run on kharej)$check" \
             "13" "Exit" 3>&1 1>&2 2>&3)
 
 
