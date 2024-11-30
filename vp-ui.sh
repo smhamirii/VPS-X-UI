@@ -1315,7 +1315,7 @@ Domain: $SUBDOMAIN.$DOMAIN" 15 60
                                 uninstall_service
                                 ;;
                             7)
-                                exit 0
+                                break
                                 ;;
                         esac
                     done
