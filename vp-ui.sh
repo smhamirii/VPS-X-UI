@@ -1251,7 +1251,7 @@ EOF
 
                     Kharej Server IP: $PRIMARY_SERVER_IP
                     Iran Server IP: $BACKUP_SERVER_IP
-                    Domain: $SUBDOMAIN.$DOMAIN" 15 80
+                    Domain: $SUBDOMAIN.$DOMAIN" 15 60
                 }
 
                 # Main menu
