@@ -1234,9 +1234,9 @@ EOF
 
                     # Determine which server is active
                     if [ "$CURRENT_IP" == "$PRIMARY_SERVER_IP" ]; then
-                        SERVER_STATUS="PRIMARY Server ($PRIMARY_SERVER_IP) is Active"
+                        SERVER_STATUS="Kharej Server ($PRIMARY_SERVER_IP) is Active"
                     elif [ "$CURRENT_IP" == "$BACKUP_SERVER_IP" ]; then
-                        SERVER_STATUS="BACKUP Server ($BACKUP_SERVER_IP) is Active"
+                        SERVER_STATUS="Iran Server ($BACKUP_SERVER_IP) is Active"
                     else
                         SERVER_STATUS="Unknown Server IP ($CURRENT_IP)"
                     fi
@@ -1246,12 +1246,12 @@ EOF
 
                     # Show detailed status
                     whiptail --title "Service Status" --msgbox "
-        Service State: $SERVICE_STATUS
-        Active Server: $SERVER_STATUS
+Service State: $SERVICE_STATUS
+Active Server: $SERVER_STATUS
 
-        Primary Server IP: $PRIMARY_SERVER_IP
-        Backup Server IP: $BACKUP_SERVER_IP
-        Domain: $SUBDOMAIN.$DOMAIN" 15 60
+Kharej Server IP: $PRIMARY_SERVER_IP
+Iran Server IP: $BACKUP_SERVER_IP
+Domain: $SUBDOMAIN.$DOMAIN" 15 60
                 }
 
                 # Main menu
