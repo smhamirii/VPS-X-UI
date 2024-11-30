@@ -125,7 +125,7 @@ def backhaul_menu():
                 backhaul_uninstall_single()
             elif choice == "0":  
                 print("Exiting...")
-                break
+                sys.exit()
             else:
                 print("Invalid choice.")
             input("Press Enter to continue...")  
