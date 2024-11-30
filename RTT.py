@@ -339,7 +339,7 @@ def backhaul_kharej_client_tcpmuxmenu():
     config = {
         "remote_addr": remote_addr_with_port,
         "transport": "tcpmux",
-        "token": "token",
+        "token": "samirkola",
         "connection_pool": 8,
         "aggressive_pool": false,
         "keepalive_period": 75,
