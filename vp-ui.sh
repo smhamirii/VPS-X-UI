@@ -1217,25 +1217,6 @@ EOF
                     fi
                 }
 
-                # Show Status
-                show_status(){
-
-                    STATUS=$(systemctl is-active "$SCRIPT_NAME.service")
-                    
-                    CURRENT_IP=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?name=$SUBDOMAIN.$DOMAIN" \
-                        -H "Authorization: Bearer $CF_API_KEY" \
-                        -H "Content-Type: application/json" | jq -r '.result[0].content')
-                        
-                    # Return status message
-                    echo "Current Status:"
-                    echo "Monitoring: ${STATUS}"
-                    echo "Domain: $SUBDOMAIN.$DOMAIN"
-                    echo "Iran IP: ${BACKUP_SERVER_IP} (${IRAN_STATUS})"
-                    echo "Kharej IP: ${PRIMARY_SERVER_IP}"
-                    echo "Currently Set IP: ${CURRENT_IP}"
-                            
-                }
-
                 # Main menu
                 main_menu() {
                     CHOICE=$(whiptail --title "Cloudflare Dynamic DNS Management" --menu "Choose an option:" 15 60 6 \
@@ -1268,15 +1249,14 @@ EOF
                             whiptail --msgbox "Service restarted!" 10 60
                             ;;
                         5)
-                            local status_text
-                            status_text=$(show_status)
-                            whiptail --title "Current Status" --msgbox "$status_text" 10 60
+                            STATUS=$(systemctl is-active "$SCRIPT_NAME.service")
+                            whiptail --msgbox "Service Status: $STATUS" 10 60
                             ;;
                         6)
                             uninstall_service
                             ;;
                         7)
-                            exit 0
+                            break
                             ;;
                         *)
                             whiptail --msgbox "Invalid option" 10 60
