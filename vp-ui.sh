@@ -1246,12 +1246,12 @@ EOF
 
                     # Show detailed status
                     whiptail --title "Service Status" --msgbox "
-Service State: $SERVICE_STATUS
-Active Server: $SERVER_STATUS
+                    Service State: $SERVICE_STATUS
+                    Active Server: $SERVER_STATUS
 
-Kharej Server IP: $PRIMARY_SERVER_IP
-Iran Server IP: $BACKUP_SERVER_IP
-Domain: $SUBDOMAIN.$DOMAIN" 15 60
+                    Kharej Server IP: $PRIMARY_SERVER_IP
+                    Iran Server IP: $BACKUP_SERVER_IP
+                    Domain: $SUBDOMAIN.$DOMAIN" 15 80
                 }
 
                 # Main menu
