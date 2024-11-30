@@ -1246,12 +1246,12 @@ EOF
 
                     # Show detailed status
                     whiptail --title "Service Status" --msgbox "
-                Service State: $SERVICE_STATUS
-                Active Server: $SERVER_STATUS
+        Service State: $SERVICE_STATUS
+        Active Server: $SERVER_STATUS
 
-                Primary Server IP: $PRIMARY_SERVER_IP
-                Backup Server IP: $BACKUP_SERVER_IP
-                Domain: $SUBDOMAIN.$DOMAIN" 15 60
+        Primary Server IP: $PRIMARY_SERVER_IP
+        Backup Server IP: $BACKUP_SERVER_IP
+        Domain: $SUBDOMAIN.$DOMAIN" 15 60
                 }
 
                 # Main menu
