@@ -18,7 +18,7 @@ if os.geteuid() != 0:
     print("\033[91mThis script must be run as root. Please use sudo -i.\033[0m")
     sys.exit(1)
 
-false="false"
+false= False
 
 def install_prerequisites():
     print("\033[93mInstalling prerequisites...\033[0m")
@@ -123,7 +123,7 @@ def backhaul_menu():
                 backhaul_edit_tcpmuxsingle()
             elif choice == "4":
                 backhaul_uninstall_single()
-            elif choice == "0.":  
+            elif choice == "0":  
                 print("Exiting...")
                 break
             else:
@@ -726,7 +726,7 @@ def configwssmux_single_client_menu(lines):
             restart_service_client()
             display_checkmark("\n\033[92mConfiguration saved and client service restarted\033[0m")
             
-        elif choice == "15":
+        elif choice == "14":
             backhaul_edit_tcpmuxsingle()
         else:
             print("\n\033[91mWrong choice, try again.")
