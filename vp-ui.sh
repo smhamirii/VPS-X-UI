@@ -44,18 +44,18 @@ while true; do
 
         # Main menu
         var7=$(whiptail --title "SAMIR VPN Creator" --menu "Welcome to Samir VPN Creator, choose an option:" 20 80 13 \
-            "1" "Server Upgrade$'\xE2\x9C\x85'" \
+            "1" "Server Upgrade✅" \
             "2" "Internet Connection" \
-            "3" "X-UI SERVICE$'\xE2\x9C\x85'" \
+            "3" "X-UI SERVICE✅" \
             "4" "Reverse Tunnel (Old method)" \
-            "5" "Reverse Tunnel (New method)$'\xE2\x9C\x85'" \
-            "6" "Cetificate + Change IP$'\xE2\x9C\x85'" \
-            "7" "Virtual RAM$'\xE2\x9C\x85'" \
+            "5" "Reverse Tunnel (New method)✅" \
+            "6" "Cetificate + Change IP✅" \
+            "7" "Virtual RAM✅" \
             "8" "Change Main IP(Not Tested)" \
             "9" "SSL Certificate" \
             "10" "Change Subdomain IP" \
             "11" "Auto Restart Server" \
-            "12" "Auto Server Change(should run on kharej)$'\xE2\x9C\x85'" \
+            "12" "Auto Server Change(should run on kharej)✅" \
             "13" "Exit" 3>&1 1>&2 2>&3)
 
 
