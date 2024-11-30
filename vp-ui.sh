@@ -1042,7 +1042,6 @@ EOF"
                 fi               
                 ;;
             "12")
-                cloudflare_ddns_menu() {
                     # Configuration and script paths
                     SCRIPT_NAME="cloudflare-ddns"
                     SCRIPT_PATH="/usr/local/bin/${SCRIPT_NAME}.sh"
@@ -1084,13 +1083,13 @@ EOF
                     # Collect configuration from user
                     get_configuration() {
                         # Cloudflare API Configuration
-                        CF_API_KEY=$(whiptail --inputbox "Enter Cloudflare API Key" 10 60 3>&1 1>&2 2>&3)
-                        DOMAIN=$(whiptail --inputbox "Enter Domain (e.g., example.com)" 10 60 3>&1 1>&2 2>&3)
-                        SUBDOMAIN=$(whiptail --inputbox "Enter Subdomain (e.g., server)" 10 60 3>&1 1>&2 2>&3)
+                        CF_API_KEY=$(whiptail --inputbox "Enter Cloudflare API Key" 10 60 3>&1 1>&2 2>&3) || return 1
+                        DOMAIN=$(whiptail --inputbox "Enter Domain (e.g., example.com)" 10 60 3>&1 1>&2 2>&3) || return 1
+                        SUBDOMAIN=$(whiptail --inputbox "Enter Subdomain (e.g., server)" 10 60 3>&1 1>&2 2>&3) || return 1
                         
                         # Server IPs
                         KHAREJ_SERVER_IP=$(curl -s https://api.ipify.org)
-                        IRAN_SERVER_IP=$(whiptail --inputbox "Enter Iran Server IP" 10 60 3>&1 1>&2 2>&3)
+                        IRAN_SERVER_IP=$(whiptail --inputbox "Enter Iran Server IP" 10 60 3>&1 1>&2 2>&3) || return 1
                     }
 
                     # Automatically find Zone ID
@@ -1108,10 +1107,70 @@ EOF
                         fi
                     }
 
+                    # Create the monitoring script
+                    create_monitor_script() {
+                        sudo mkdir -p "$(dirname "$SCRIPT_PATH")"
+                        sudo tee "$SCRIPT_PATH" > /dev/null << 'EOF'
+#!/bin/bash
+
+CONFIG_PATH="/etc/cloudflare-ddns.conf"
+# Source config file
+source "$CONFIG_PATH"
+
+# Global variables to track server status
+CURRENT_SERVER_IP=""
+IRAN_SERVER_LAST_STATE="unreachable"
+
+update_dns_record() {
+    local TARGET_IP=$1
+    
+    # Get existing DNS record
+    RECORD_RESPONSE=$(curl -s -X GET \
+        "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?type=A&name=$SUBDOMAIN.$DOMAIN" \
+        -H "Authorization: Bearer $CF_API_KEY" \
+        -H "Content-Type: application/json")
+    
+    RECORD_ID=$(echo "$RECORD_RESPONSE" | jq -r '.result[0].id')
+    
+    # Update DNS record
+    UPDATE_RESPONSE=$(curl -s -X PUT \
+        "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$RECORD_ID" \
+        -H "Authorization: Bearer $CF_API_KEY" \
+        -H "Content-Type: application/json" \
+        --data "{\"type\":\"A\",\"name\":\"$SUBDOMAIN\",\"content\":\"$TARGET_IP\",\"ttl\":1,\"proxied\":false}")
+    
+    if echo "$UPDATE_RESPONSE" | jq -e '.success' > /dev/null; then
+        echo "DNS updated to $TARGET_IP" | systemd-cat -t cloudflare-ddns -p info
+        CURRENT_SERVER_IP="$TARGET_IP"
+    else
+        echo "DNS update failed" | systemd-cat -t cloudflare-ddns -p err
+    fi
+}
+
+while true; do
+    # Ping IRAN SERVER
+    if ping -c 3 "$IRAN_SERVER_IP" > /dev/null 2>&1; then
+        if [ "$IRAN_SERVER_LAST_STATE" == "unreachable" ] || [ "$CURRENT_SERVER_IP" != "$IRAN_SERVER_IP" ]; then
+            update_dns_record "$IRAN_SERVER_IP"
+            IRAN_SERVER_LAST_STATE="reachable"
+        fi
+    else
+        if [ "$CURRENT_SERVER_IP" == "$IRAN_SERVER_IP" ]; then
+            update_dns_record "$KHAREJ_SERVER_IP"
+            IRAN_SERVER_LAST_STATE="unreachable"
+        fi
+    fi
+    
+    sleep 300
+done
+EOF
+                        sudo chmod +x "$SCRIPT_PATH"
+                    }
+
                     # Create systemd service file
                     create_service_file() {
-                        # Create the monitoring script
-                        create_monitor_script
+                        # Create the monitoring script first
+                        create_monitor_script || return 1
 
                         sudo tee "$SERVICE_PATH" > /dev/null << EOF
 [Unit]
@@ -1130,67 +1189,9 @@ WantedBy=multi-user.target
 EOF
                     }
 
-                    # Create the monitoring script
-                    create_monitor_script() {
-                        sudo tee "$SCRIPT_PATH" > /dev/null << EOF
-#!/bin/bash
-
-# Source config file
-source "$CONFIG_PATH"
-
-# Global variables to track server status
-CURRENT_SERVER_IP=""
-IRAN_SERVER_LAST_STATE="unreachable"
-
-update_dns_record() {
-    local TARGET_IP=\$1
-    
-    # Get existing DNS record
-    RECORD_RESPONSE=\$(curl -s -X GET \\
-        "https://api.cloudflare.com/client/v4/zones/\$ZONE_ID/dns_records?type=A&name=\$SUBDOMAIN.\$DOMAIN" \\
-        -H "Authorization: Bearer \$CF_API_KEY" \\
-        -H "Content-Type: application/json")
-    
-    RECORD_ID=\$(echo "\$RECORD_RESPONSE" | jq -r '.result[0].id')
-    
-    # Update DNS record
-    UPDATE_RESPONSE=\$(curl -s -X PUT \\
-        "https://api.cloudflare.com/client/v4/zones/\$ZONE_ID/dns_records/\$RECORD_ID" \\
-        -H "Authorization: Bearer \$CF_API_KEY" \\
-        -H "Content-Type: application/json" \\
-        --data "{\"type\":\"A\",\"name\":\"\$SUBDOMAIN\",\"content\":\"\$TARGET_IP\",\"ttl\":1,\"proxied\":false}")
-    
-    if echo "\$UPDATE_RESPONSE" | jq -e '.success' > /dev/null; then
-        echo "DNS updated to \$TARGET_IP" | systemd-cat -t cloudflare-ddns -p info
-        CURRENT_SERVER_IP="\$TARGET_IP"
-    else
-        echo "DNS update failed" | systemd-cat -t cloudflare-ddns -p err
-    fi
-}
-
-while true; do
-    # Ping IRAN SERVER
-    if ping -c 3 "\$IRAN_SERVER_IP" > /dev/null 2>&1; then
-        if [ "\$IRAN_SERVER_LAST_STATE" == "unreachable" ] || [ "\$CURRENT_SERVER_IP" != "\$IRAN_SERVER_IP" ]; then
-            update_dns_record "\$IRAN_SERVER_IP"
-            IRAN_SERVER_LAST_STATE="reachable"
-        fi
-    else
-        if [ "\$CURRENT_SERVER_IP" == "\$IRAN_SERVER_IP" ]; then
-            update_dns_record "\$KHAREJ_SERVER_IP"
-            IRAN_SERVER_LAST_STATE="unreachable"
-        fi
-    fi
-    
-    sleep 300
-done
-EOF
-                        sudo chmod +x "$SCRIPT_PATH"
-                    }
-
                     # Install script and service
                     install_service() {
-                        create_service_file
+                        create_service_file || return 1
 
                         # Reload systemd, enable and start service
                         sudo systemctl daemon-reload
@@ -1217,6 +1218,11 @@ EOF
 
                     # Enhanced status checking function
                     check_current_server_status() {
+                        if [ ! -f "$CONFIG_PATH" ]; then
+                            whiptail --msgbox "Configuration file not found. Please install the service first." 10 60
+                            return 1
+                        fi
+
                         # Source the configuration
                         source "$CONFIG_PATH"
 
@@ -1262,12 +1268,17 @@ Domain: $SUBDOMAIN.$DOMAIN" 15 60
                             "6" "Remove Service" \
                             "7" "Return to Main Menu" 3>&1 1>&2 2>&3)
 
+                        exitstatus=$?
+                        if [ $exitstatus != 0 ]; then
+                            return
+                        fi
+
                         case $CHOICE in
                             1)
-                                check_dependencies
-                                get_configuration
-                                find_zone_id
-                                save_configuration
+                                check_dependencies && \
+                                get_configuration && \
+                                find_zone_id && \
+                                save_configuration && \
                                 install_service
                                 ;;
                             2)
@@ -1291,12 +1302,8 @@ Domain: $SUBDOMAIN.$DOMAIN" 15 60
                             7)
                                 return
                                 ;;
-                            *)
-                                whiptail --msgbox "Invalid option" 10 60
-                                ;;
                         esac
                     done
-                }
                 ;;
             "13")
                 # Exit option
