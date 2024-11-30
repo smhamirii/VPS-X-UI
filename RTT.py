@@ -23,8 +23,6 @@ false= False
 def install_prerequisites():
     print("\033[93mInstalling prerequisites...\033[0m")
     if platform.system() == "Linux":
-        loading_bar("\033[93mUpdating\033[0m")
-        subprocess.run(['sudo', 'apt', 'update', '-y'], check=True)
         loading_bar("\033[93mInstalling wget, curl, unzip, and tar\033[0m")
         subprocess.run(['sudo', 'apt', 'install', '-y', 'wget', 'curl', 'unzip', 'tar'], check=True)
     elif platform.system() == "Darwin":
@@ -177,21 +175,17 @@ def backhaul_iran_server_tcpmuxmenu():
     backhaul_directory = "/usr/local/bin/backhaul"
     if os.path.exists(backhaul_directory):
         print(f"\033[93mbackhaul exists, skipping\033[0m")
+        backhaul_menu()
     else:
         install_prerequisites()
         download_binary()
-    
-    print("\033[93m───────────────────────────────────────\033[0m")
-    port = input("\033[93mEnter \033[92mTunnel Port\033[93m: \033[0m").strip()
-    if port.isdigit():
-        bind_addr = f"0.0.0.0:{port}"
-    else:
-        bind_addr = "0.0.0.0:12000"
+        bind_addr = f"0.0.0.0:{23123}"
+
 
     config = {
         "bind_addr": bind_addr,
         "transport": "tcpmux",
-        "token": "samirkola",
+        "token": "samirkala",
         "keepalive_period": 75,
         "nodelay": false,
         "channel_size": 2048,
@@ -324,6 +318,7 @@ def backhaul_kharej_client_tcpmuxmenu():
     backhaul_directory = "/usr/local/bin/backhaul"
     if os.path.exists(backhaul_directory):
         print(f"\033[93mbackhaul exists, skipping\033[0m")
+        backhaul_menu()
     else:
         install_prerequisites()
         download_binary()
@@ -333,13 +328,12 @@ def backhaul_kharej_client_tcpmuxmenu():
     remote_addr = input("\033[93mEnter\033[92m IRAN \033[97m(IPv4/IPv6)\033[93m: \033[0m").strip()
     if ":" in remote_addr:  
         remote_addr = f"[{remote_addr}]"
-    tunnel_port = input("\033[93mEnter \033[92mTunnel Port\033[93m : \033[0m").strip()
-    remote_addr_with_port = f"{remote_addr}:{tunnel_port}"
+    remote_addr_with_port = f"{remote_addr}:{23123}"
 
     config = {
         "remote_addr": remote_addr_with_port,
         "transport": "tcpmux",
-        "token": "samirkola",
+        "token": "samirkala",
         "connection_pool": 8,
         "aggressive_pool": false,
         "keepalive_period": 75,
