@@ -1342,7 +1342,7 @@ EOF
 
                     v2m_save_config
 
-                    # Create a separate monitoring script
+                    # Create daemon script with enhanced connectivity check
                     cat > "/usr/local/bin/v2ray_monitor_daemon.sh" << 'EOF'
 #!/bin/bash
 
@@ -1358,25 +1358,55 @@ log_message() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') - ${1}" >> "${V2M_LOG_FILE}"
 }
 
+# Enhanced connectivity check
 check_connectivity() {
-    ping -c 1 -W 3 "${1}" &> /dev/null
+    local target_ip="${1}"
+    local success=0
+    local ping_count=3
+    local tcp_ports=(80 443)
+    
+    # Multiple ping attempts
+    for ((i=1; i<=ping_count; i++)); do
+        if ping -c 1 -W 3 "${target_ip}" &> /dev/null; then
+            ((success++))
+        fi
+        sleep 1
+    done
+
+    # TCP connection test
+    for port in "${tcp_ports[@]}"; do
+        if nc -zv -w3 "${target_ip}" "${port}" &> /dev/null; then
+            ((success++))
+        fi
+    done
+
+    # Need at least 3 successful checks
+    [[ ${success} -ge 3 ]]
     return $?
 }
 
 update_cloudflare_dns() {
     local new_ip="${1}"
+    local current_ip
     local zone_name
     zone_name=$(echo "${V2M_FULL_DOMAIN}" | awk -F. '{print $(NF-1)"."$NF}')
     
-    # Get zone ID
+    # First get current IP
     local zone_id
     zone_id=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones?name=${zone_name}" \
         -H "Authorization: Bearer ${V2M_CLOUDFLARE_API_TOKEN}" \
         -H "Content-Type: application/json" | jq -r '.result[0].id')
     
-    if [[ -z "${zone_id}" || "${zone_id}" == "null" ]]; then
-        log_message "Failed to get zone ID"
-        return 1
+    if [[ -n "${zone_id}" && "${zone_id}" != "null" ]]; then
+        current_ip=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records?name=${V2M_FULL_DOMAIN}" \
+            -H "Authorization: Bearer ${V2M_CLOUDFLARE_API_TOKEN}" \
+            -H "Content-Type: application/json" | jq -r '.result[0].content')
+    fi
+
+    # Only update if IP is different
+    if [[ "${current_ip}" == "${new_ip}" ]]; then
+        log_message "DNS already pointing to ${new_ip}, no update needed"
+        return 0
     fi
     
     # Get record ID
@@ -1398,10 +1428,10 @@ update_cloudflare_dns() {
         --data "{\"type\":\"A\",\"name\":\"${V2M_FULL_DOMAIN}\",\"content\":\"${new_ip}\",\"ttl\":120,\"proxied\":false}" | jq -r '.success')
     
     if [[ "${success}" == "true" ]]; then
-        log_message "DNS updated to ${new_ip}"
+        log_message "DNS updated successfully from ${current_ip} to ${new_ip}"
         return 0
     else
-        log_message "Failed to update DNS"
+        log_message "Failed to update DNS from ${current_ip} to ${new_ip}"
         return 1
     fi
 }
@@ -1414,10 +1444,10 @@ log_message "Kharej IP: ${V2M_KHAREJ_IP}"
 
 while [[ -f "${V2M_SCRIPT_ENABLED_FILE}" ]]; do
     if check_connectivity "${V2M_IRAN_IP}"; then
-        log_message "Iran server reachable, updating DNS to Iran IP"
+        log_message "Iran server reachable, checking DNS update"
         update_cloudflare_dns "${V2M_IRAN_IP}"
     else
-        log_message "Iran server unreachable, updating DNS to Kharej IP"
+        log_message "Iran server unreachable, checking DNS update"
         update_cloudflare_dns "${V2M_KHAREJ_IP}"
     fi
     sleep 300
@@ -1427,10 +1457,14 @@ EOF
                     # Make the daemon script executable
                     sudo chmod +x "/usr/local/bin/v2ray_monitor_daemon.sh"
                     
-                    # Start monitoring in background properly
+                    # Start monitoring in background
                     sudo touch "${V2M_SCRIPT_ENABLED_FILE}"
-                    (sudo "/usr/local/bin/v2ray_monitor_daemon.sh" >> "${V2M_LOG_FILE}" 2>&1 &)
-                    sleep 1
+                    sudo "/usr/local/bin/v2ray_monitor_daemon.sh" > /dev/null 2>&1 &
+                    
+                    # Small delay to ensure the process starts
+                    sleep 2
+                    
+                    # Return success
                     return 0
                 }
 
