@@ -1049,6 +1049,7 @@ EOF"
                 SCRIPT_PATH="/usr/local/bin/${SCRIPT_NAME}.sh"
                 SERVICE_PATH="/etc/systemd/system/${SCRIPT_NAME}.service"
                 CONFIG_PATH="/etc/${SCRIPT_NAME}.conf"
+                STATUS_FILE="/tmp/${SCRIPT_NAME}_current_server.status"
 
                 # Required dependencies
                 REQUIRED_PACKAGES=("jq" "curl" "whiptail")
@@ -1217,6 +1218,42 @@ EOF
                     fi
                 }
 
+                # Enhanced status checking function
+                check_current_server_status() {
+                    # Source the configuration
+                    source "$CONFIG_PATH"
+
+                    # Fetch current DNS record
+                    RECORD_RESPONSE=$(curl -s -X GET \
+                        "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?type=A&name=$SUBDOMAIN.$DOMAIN" \
+                        -H "Authorization: Bearer $CF_API_KEY" \
+                        -H "Content-Type: application/json")
+                    
+                    # Extract current IP
+                    CURRENT_IP=$(echo "$RECORD_RESPONSE" | jq -r '.result[0].content')
+
+                    # Determine which server is active
+                    if [ "$CURRENT_IP" == "$PRIMARY_SERVER_IP" ]; then
+                        SERVER_STATUS="PRIMARY Server ($PRIMARY_SERVER_IP) is Active"
+                    elif [ "$CURRENT_IP" == "$BACKUP_SERVER_IP" ]; then
+                        SERVER_STATUS="BACKUP Server ($BACKUP_SERVER_IP) is Active"
+                    else
+                        SERVER_STATUS="Unknown Server IP ($CURRENT_IP)"
+                    fi
+
+                    # Get systemd service status
+                    SERVICE_STATUS=$(systemctl is-active "$SCRIPT_NAME.service")
+
+                    # Show detailed status
+                    whiptail --title "Service Status" --msgbox "
+                Service State: $SERVICE_STATUS
+                Active Server: $SERVER_STATUS
+
+                Primary Server IP: $PRIMARY_SERVER_IP
+                Backup Server IP: $BACKUP_SERVER_IP
+                Domain: $SUBDOMAIN.$DOMAIN" 15 60
+                }
+
                 # Main menu
                 main_menu() {
                     CHOICE=$(whiptail --title "Cloudflare Dynamic DNS Management" --menu "Choose an option:" 15 60 6 \
@@ -1249,8 +1286,7 @@ EOF
                             whiptail --msgbox "Service restarted!" 10 60
                             ;;
                         5)
-                            STATUS=$(systemctl is-active "$SCRIPT_NAME.service")
-                            whiptail --msgbox "Service Status: $STATUS" 10 60
+                            check_current_server_status
                             ;;
                         6)
                             uninstall_service
