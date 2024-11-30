@@ -648,78 +648,159 @@ EOL
                 configure_swap
                 ;;
             "8")
+                # Check if script is run as root
+                if [ "$EUID" -ne 0 ]; then
+                    whiptail --title "Error" --msgbox "Please run as root or with sudo" 8 40
+                    exit 1
+                fi
+
+                # Function to backup interfaces file
+                backup_interfaces() {
+                    local backup_file="/etc/network/interfaces.backup.$(date +%Y%m%d_%H%M%S)"
+                    cp /etc/network/interfaces "$backup_file"
+                    whiptail --title "Backup" --msgbox "Backup created: $backup_file" 8 60
+                }
+
+                # Function to get all physical interfaces
+                get_interfaces() {
+                    ip -o link show | grep -v "lo" | awk -F': ' '{print $2}' | cut -d'@' -f1
+                }
+
+                # Function to get all IPv4 addresses for a specific interface
                 get_ipv4_addresses() {
-                    # Get all IPv4 addresses and their interface names
-                    ip -4 addr show | grep inet | grep -v '127.0.0.1' | awk '{print $2, "("$NF")"}'
+                    local interface=$1
+                    ip -o addr show dev "$interface" | grep 'inet ' | awk '{print $4}'
                 }
 
-                # Function to set the default route
-                set_default_route() {
-                    local chosen_ip="$1"
-                    local interface=$(ip addr show | grep "$chosen_ip" | awk '{print $NF}')
-                    
-                    # Remove existing default routes
-                    ip route del default 2>/dev/null
+                # Function to get gateway for an interface
+                get_gateway() {
+                    local interface=$1
+                    ip route show dev "$interface" | grep default | awk '{print $3}'
+                }
 
-                    # Get the gateway for the chosen interface
-                    local gateway=$(ip route | grep "$interface" | grep -v 'default' | awk '{print $1}' | cut -d'/' -f1 | head -n1)
+                # Function to extract existing IPv6 and DNS configuration
+                get_existing_config() {
+                    local interface=$1
+                    local config_file="/etc/network/interfaces"
+                    local in_ipv6=0
+                    local ipv6_config=""
                     
-                    # Add new default route
-                    if ip route add default via "$gateway" dev "$interface"; then
-                        return 0
-                    else
-                        return 1
+                    while IFS= read -r line; do
+                        if [[ $line =~ ^iface[[:space:]]+$interface[[:space:]]+inet6[[:space:]]+static ]]; then
+                            in_ipv6=1
+                            ipv6_config+="$line\n"
+                        elif [[ $in_ipv6 -eq 1 && $line =~ ^[[:space:]] ]]; then
+                            ipv6_config+="$line\n"
+                        elif [[ $in_ipv6 -eq 1 ]]; then
+                            in_ipv6=0
+                        fi
+                    done < "$config_file"
+                    
+                    echo -e "$ipv6_config"
+                }
+
+                # Function to update interfaces file
+                update_interfaces_file() {
+                    local interface=$1
+                    local ipv4_address=$2
+                    local ipv4_gateway=$3
+                    local existing_ipv6=$(get_existing_config "$interface")
+                    
+                    # Create new interfaces file content
+                    cat > /etc/network/interfaces << EOF
+# The loopback network interface
+auto lo
+iface lo inet loopback
+
+# The primary network interface
+auto $interface
+iface $interface inet static
+address $ipv4_address
+netmask 255.255.255.255
+gateway $ipv4_gateway
+EOF
+
+                    # Add existing IPv6 configuration if it exists
+                    if [ -n "$existing_ipv6" ]; then
+                        echo -e "\n$existing_ipv6" >> /etc/network/interfaces
                     fi
                 }
 
-                # Get all IPv4 addresses
-                IPS=($(get_ipv4_addresses))
+                # Function to restart networking
+                restart_networking() {
+                    if systemctl restart networking.service; then
+                        whiptail --title "Success" --msgbox "Network service restarted successfully" 8 40
+                    else
+                        whiptail --title "Error" --msgbox "Failed to restart networking service" 8 40
+                        exit 1
+                    fi
+                }
 
-                if [ ${#IPS[@]} -eq 0 ]; then
-                    whiptail --title "Error" --msgbox "No IPv4 addresses found!" 8 40
+                # Function to create menu items for whiptail
+                create_menu_items() {
+                    local items=("$@")
+                    local menu_items=()
+                    local i=1
+                    for item in "${items[@]}"; do
+                        menu_items+=("$i" "$item")
+                        ((i++))
+                    done
+                    echo "${menu_items[@]}"
+                }
+
+                # Main script execution
+                # Show welcome message
+                whiptail --title "Network IP Switcher" --msgbox "Welcome to Network IP Switcher\n\nThis tool will help you change your network interface configuration." 10 60
+
+                # Get interfaces and create menu
+                interfaces=($(get_interfaces))
+                if [ ${#interfaces[@]} -eq 0 ]; then
+                    whiptail --title "Error" --msgbox "No network interfaces found" 8 40
                     exit 1
                 fi
 
-                # Create options array for whiptail
-                OPTIONS=()
-                for ((i=0; i<${#IPS[@]}; i+=2)); do
-                    OPTIONS+=("${IPS[i]}" "${IPS[i+1]}")
-                done
-
-                # Show menu with IP addresses
-                CHOSEN_IP=$(whiptail --title "Select Main IP Address" \
-                    --menu "Choose the IP address to use as main internet connection:" \
-                    20 60 10 \
-                    "${OPTIONS[@]}" \
-                    3>&1 1>&2 2>&3)
-
-                # Check if user canceled
+                menu_items=$(create_menu_items "${interfaces[@]}")
+                interface_choice=$(whiptail --title "Select Interface" --menu "Choose a network interface:" 15 60 5 ${menu_items} 3>&1 1>&2 2>&3)
                 if [ $? -ne 0 ]; then
-                    echo "Operation canceled by user"
+                    exit 0
+                fi
+                selected_interface=${interfaces[$((interface_choice-1))]}
+
+                # Get IPv4 addresses and create menu
+                ipv4_addresses=($(get_ipv4_addresses "$selected_interface"))
+                if [ ${#ipv4_addresses[@]} -eq 0 ]; then
+                    whiptail --title "Error" --msgbox "No IPv4 addresses found for interface $selected_interface" 8 60
                     exit 1
                 fi
 
-                # Extract IP address without CIDR notation
-                CHOSEN_IP=$(echo $CHOSEN_IP | cut -d'/' -f1)
+                menu_items=$(create_menu_items "${ipv4_addresses[@]}")
+                ip_choice=$(whiptail --title "Select IP Address" --menu "Choose an IP address:" 15 60 5 ${menu_items} 3>&1 1>&2 2>&3)
+                if [ $? -ne 0 ]; then
+                    exit 0
+                fi
+                selected_ip=${ipv4_addresses[$((ip_choice-1))]}
+                selected_ip=${selected_ip%/*}  # Remove CIDR notation if present
 
-                # Show confirmation dialog
-                if whiptail --title "Confirm Selection" --yesno "Are you sure you want to set $CHOSEN_IP as your main IP?" 8 60; then
-                    # Backup current network configuration
-                    cp /etc/netplan/00-installer-config.yaml /etc/netplan/00-installer-config.yaml.backup.$(date +%Y%m%d-%H%M%S)
-                    
-                    # Set the new default route
-                    if set_default_route "$CHOSEN_IP"; then
-                        whiptail --title "Success" --msgbox "Successfully set $CHOSEN_IP as main IP.\nA backup of your network configuration has been created." 10 60
-                        
-                        # Show current routing table
-                        echo "Current routing table:"
-                        ip route show
-                    else
-                        whiptail --title "Error" --msgbox "Failed to set $CHOSEN_IP as main IP.\nPlease check system logs for more information." 10 60
+                # Get gateway
+                current_gateway=$(get_gateway "$selected_interface")
+                if [ -z "$current_gateway" ]; then
+                    current_gateway=$(whiptail --title "Gateway Input" --inputbox "Enter gateway address:" 8 60 3>&1 1>&2 2>&3)
+                    if [ $? -ne 0 ]; then
+                        exit 0
                     fi
+                fi
+
+                # Show confirmation
+                confirmation_text="Interface: $selected_interface\nIPv4 Address: $selected_ip\nIPv4 Gateway: $current_gateway\n\nExisting IPv6 and DNS settings will be preserved."
+                if whiptail --title "Confirm Changes" --yesno "$confirmation_text" 15 60; then
+                    # Perform the changes
+                    backup_interfaces
+                    update_interfaces_file "$selected_interface" "$selected_ip" "$current_gateway"
+                    restart_networking
+                    whiptail --title "Success" --msgbox "Configuration updated successfully" 8 40
                 else
-                    echo "Operation canceled by user"
-                    exit 1
+                    whiptail --title "Cancelled" --msgbox "Operation cancelled" 8 40
+                    exit 0
                 fi
                 ;;
             "9")
@@ -961,6 +1042,9 @@ EOF"
                 fi               
                 ;;
             "12")
+                sudo apt-get install netcat-openbsd
+
+                # Set environment variables
                 export V2M_CONFIG_FILE="/etc/v2ray_monitor/config.conf"
                 export V2M_SCRIPT_ENABLED_FILE="/etc/v2ray_monitor/script_enabled"
                 export V2M_LOG_FILE="/var/log/v2ray_monitor.log"
@@ -1109,7 +1193,27 @@ EOF
                 # Server Connectivity Check Function
                 v2m_check_connectivity() {
                     local target_ip="${1}"
-                    ping -c 1 -W 3 "${target_ip}" &> /dev/null
+                    local success=0
+                    local ping_count=3
+                    local tcp_ports=(80 443)
+                    
+                    # Multiple ping attempts
+                    for ((i=1; i<=ping_count; i++)); do
+                        if ping -c 1 -W 3 "${target_ip}" &> /dev/null; then
+                            ((success++))
+                        fi
+                        sleep 1
+                    done
+
+                    # TCP connection test
+                    for port in "${tcp_ports[@]}"; do
+                        if nc -zv -w3 "${target_ip}" "${port}" &> /dev/null; then
+                            ((success++))
+                        fi
+                    done
+
+                    # Need at least 3 successful checks (combination of ping and TCP)
+                    [[ ${success} -ge 3 ]]
                     return $?
                 }
 
@@ -1323,9 +1427,11 @@ EOF
                     # Make the daemon script executable
                     sudo chmod +x "/usr/local/bin/v2ray_monitor_daemon.sh"
                     
-                    # Start monitoring
+                    # Start monitoring in background properly
                     sudo touch "${V2M_SCRIPT_ENABLED_FILE}"
-                    sudo nohup "/usr/local/bin/v2ray_monitor_daemon.sh" >> "${V2M_LOG_FILE}" 2>&1 &
+                    (sudo "/usr/local/bin/v2ray_monitor_daemon.sh" >> "${V2M_LOG_FILE}" 2>&1 &)
+                    sleep 1
+                    return 0
                 }
 
                 v2m_show_status() {
