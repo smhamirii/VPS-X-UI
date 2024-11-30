@@ -1042,83 +1042,85 @@ EOF"
                 fi               
                 ;;
             "12")
-                # Cloudflare Dynamic DNS Monitoring Script with Service Management
+                cloudflare_ddns_menu() {
+                    # Configuration and script paths
+                    SCRIPT_NAME="cloudflare-ddns"
+                    SCRIPT_PATH="/usr/local/bin/${SCRIPT_NAME}.sh"
+                    SERVICE_PATH="/etc/systemd/system/${SCRIPT_NAME}.service"
+                    CONFIG_PATH="/etc/${SCRIPT_NAME}.conf"
+                    STATUS_FILE="/tmp/${SCRIPT_NAME}_current_server.status"
 
-                # Configuration and script paths
-                SCRIPT_NAME="cloudflare-ddns"
-                SCRIPT_PATH="/usr/local/bin/${SCRIPT_NAME}.sh"
-                SERVICE_PATH="/etc/systemd/system/${SCRIPT_NAME}.service"
-                CONFIG_PATH="/etc/${SCRIPT_NAME}.conf"
-                STATUS_FILE="/tmp/${SCRIPT_NAME}_current_server.status"
+                    # Required dependencies
+                    REQUIRED_PACKAGES=("jq" "curl" "whiptail")
 
-                # Required dependencies
-                REQUIRED_PACKAGES=("jq" "curl" "whiptail")
-
-                # Check and install dependencies
-                check_dependencies() {
-                    for pkg in "${REQUIRED_PACKAGES[@]}"; do
-                        if ! dpkg -s "$pkg" >/dev/null 2>&1; then
-                            if ! whiptail --title "Dependencies Missing" --yesno "Package $pkg is not installed. Install now?" 10 60; then
-                                whiptail --msgbox "Cannot proceed without required packages." 10 60
-                                exit 1
+                    # Check and install dependencies
+                    check_dependencies() {
+                        for pkg in "${REQUIRED_PACKAGES[@]}"; do
+                            if ! dpkg -s "$pkg" >/dev/null 2>&1; then
+                                if ! whiptail --title "Dependencies Missing" --yesno "Package $pkg is not installed. Install now?" 10 60; then
+                                    whiptail --msgbox "Cannot proceed without required packages." 10 60
+                                    return 1
+                                fi
+                                sudo apt-get update
+                                sudo apt-get install -y "$pkg"
                             fi
-                            sudo apt-get update
-                            sudo apt-get install -y "$pkg"
-                        fi
-                    done
-                }
+                        done
+                    }
 
-                # Save configuration to a config file
-                save_configuration() {
-                    # Create config file
-                    sudo tee "$CONFIG_PATH" > /dev/null << EOF
+                    # Save configuration to a config file
+                    save_configuration() {
+                        # Create config file
+                        sudo tee "$CONFIG_PATH" > /dev/null << EOF
 CF_API_KEY="$CF_API_KEY"
 DOMAIN="$DOMAIN"
 SUBDOMAIN="$SUBDOMAIN"
-PRIMARY_SERVER_IP="$PRIMARY_SERVER_IP"
-BACKUP_SERVER_IP="$BACKUP_SERVER_IP"
+KHAREJ_SERVER_IP="$KHAREJ_SERVER_IP"
+IRAN_SERVER_IP="$IRAN_SERVER_IP"
 ZONE_ID="$ZONE_ID"
 EOF
-                    sudo chmod 600 "$CONFIG_PATH"
-                }
+                        sudo chmod 600 "$CONFIG_PATH"
+                    }
 
-                # Collect configuration from user
-                get_configuration() {
-                    # Cloudflare API Configuration
-                    CF_API_KEY=$(whiptail --inputbox "Enter Cloudflare API Key" 10 60 3>&1 1>&2 2>&3)
-                    DOMAIN=$(whiptail --inputbox "Enter Domain (e.g., example.com)" 10 60 3>&1 1>&2 2>&3)
-                    SUBDOMAIN=$(whiptail --inputbox "Enter Subdomain (e.g., server)" 10 60 3>&1 1>&2 2>&3)
-                    
-                    # Server IPs
-                    PRIMARY_SERVER_IP=$(curl -s https://api.ipify.org)
-                    BACKUP_SERVER_IP=$(whiptail --inputbox "Enter Iran Server IP" 10 60 3>&1 1>&2 2>&3)
-                }
+                    # Collect configuration from user
+                    get_configuration() {
+                        # Cloudflare API Configuration
+                        CF_API_KEY=$(whiptail --inputbox "Enter Cloudflare API Key" 10 60 3>&1 1>&2 2>&3)
+                        DOMAIN=$(whiptail --inputbox "Enter Domain (e.g., example.com)" 10 60 3>&1 1>&2 2>&3)
+                        SUBDOMAIN=$(whiptail --inputbox "Enter Subdomain (e.g., server)" 10 60 3>&1 1>&2 2>&3)
+                        
+                        # Server IPs
+                        KHAREJ_SERVER_IP=$(curl -s https://api.ipify.org)
+                        IRAN_SERVER_IP=$(whiptail --inputbox "Enter Iran Server IP" 10 60 3>&1 1>&2 2>&3)
+                    }
 
-                # Automatically find Zone ID
-                find_zone_id() {
-                    ZONE_RESPONSE=$(curl -s -X GET \
-                        "https://api.cloudflare.com/client/v4/zones?name=$DOMAIN" \
-                        -H "Authorization: Bearer $CF_API_KEY" \
-                        -H "Content-Type: application/json")
-                    
-                    ZONE_ID=$(echo "$ZONE_RESPONSE" | jq -r '.result[0].id')
-                    
-                    if [ -z "$ZONE_ID" ] || [ "$ZONE_ID" == "null" ]; then
-                        whiptail --msgbox "Failed to retrieve Zone ID. Check your API key and domain." 10 60
-                        exit 1
-                    fi
-                }
+                    # Automatically find Zone ID
+                    find_zone_id() {
+                        ZONE_RESPONSE=$(curl -s -X GET \
+                            "https://api.cloudflare.com/client/v4/zones?name=$DOMAIN" \
+                            -H "Authorization: Bearer $CF_API_KEY" \
+                            -H "Content-Type: application/json")
+                        
+                        ZONE_ID=$(echo "$ZONE_RESPONSE" | jq -r '.result[0].id')
+                        
+                        if [ -z "$ZONE_ID" ] || [ "$ZONE_ID" == "null" ]; then
+                            whiptail --msgbox "Failed to retrieve Zone ID. Check your API key and domain." 10 60
+                            return 1
+                        fi
+                    }
 
-                # Create systemd service file
-                create_service_file() {
-                    sudo tee "$SERVICE_PATH" > /dev/null << EOF
+                    # Create systemd service file
+                    create_service_file() {
+                        # Create the monitoring script
+                        create_monitor_script
+
+                        sudo tee "$SERVICE_PATH" > /dev/null << EOF
 [Unit]
 Description=Cloudflare Dynamic DNS Monitoring Service
 After=network.target
 
 [Service]
 Type=simple
-ExecStart=/bin/bash $SCRIPT_PATH monitor
+ExecStart=/bin/bash $SCRIPT_PATH
 Restart=always
 RestartSec=5
 User=root
@@ -1126,189 +1128,175 @@ User=root
 [Install]
 WantedBy=multi-user.target
 EOF
-                }
+                    }
 
-                # Install script and service
-                install_service() {
-                    # Save current script to system path
-                    sudo cp "$0" "$SCRIPT_PATH"
-                    sudo chmod +x "$SCRIPT_PATH"
+                    # Create the monitoring script
+                    create_monitor_script() {
+                        sudo tee "$SCRIPT_PATH" > /dev/null << EOF
+#!/bin/bash
 
-                    # Create service file
-                    create_service_file
+# Source config file
+source "$CONFIG_PATH"
 
-                    # Reload systemd, enable and start service
-                    sudo systemctl daemon-reload
-                    sudo systemctl enable "$SCRIPT_NAME.service"
-                    sudo systemctl start "$SCRIPT_NAME.service"
+# Global variables to track server status
+CURRENT_SERVER_IP=""
+IRAN_SERVER_LAST_STATE="unreachable"
 
-                    whiptail --msgbox "Service installed and started successfully!" 10 60
-                }
+update_dns_record() {
+    local TARGET_IP=\$1
+    
+    # Get existing DNS record
+    RECORD_RESPONSE=\$(curl -s -X GET \\
+        "https://api.cloudflare.com/client/v4/zones/\$ZONE_ID/dns_records?type=A&name=\$SUBDOMAIN.\$DOMAIN" \\
+        -H "Authorization: Bearer \$CF_API_KEY" \\
+        -H "Content-Type: application/json")
+    
+    RECORD_ID=\$(echo "\$RECORD_RESPONSE" | jq -r '.result[0].id')
+    
+    # Update DNS record
+    UPDATE_RESPONSE=\$(curl -s -X PUT \\
+        "https://api.cloudflare.com/client/v4/zones/\$ZONE_ID/dns_records/\$RECORD_ID" \\
+        -H "Authorization: Bearer \$CF_API_KEY" \\
+        -H "Content-Type: application/json" \\
+        --data "{\"type\":\"A\",\"name\":\"\$SUBDOMAIN\",\"content\":\"\$TARGET_IP\",\"ttl\":1,\"proxied\":false}")
+    
+    if echo "\$UPDATE_RESPONSE" | jq -e '.success' > /dev/null; then
+        echo "DNS updated to \$TARGET_IP" | systemd-cat -t cloudflare-ddns -p info
+        CURRENT_SERVER_IP="\$TARGET_IP"
+    else
+        echo "DNS update failed" | systemd-cat -t cloudflare-ddns -p err
+    fi
+}
 
-                # Uninstall service
-                uninstall_service() {
-                    # Stop and disable service
-                    sudo systemctl stop "$SCRIPT_NAME.service"
-                    sudo systemctl disable "$SCRIPT_NAME.service"
+while true; do
+    # Ping IRAN SERVER
+    if ping -c 3 "\$IRAN_SERVER_IP" > /dev/null 2>&1; then
+        if [ "\$IRAN_SERVER_LAST_STATE" == "unreachable" ] || [ "\$CURRENT_SERVER_IP" != "\$IRAN_SERVER_IP" ]; then
+            update_dns_record "\$IRAN_SERVER_IP"
+            IRAN_SERVER_LAST_STATE="reachable"
+        fi
+    else
+        if [ "\$CURRENT_SERVER_IP" == "\$IRAN_SERVER_IP" ]; then
+            update_dns_record "\$KHAREJ_SERVER_IP"
+            IRAN_SERVER_LAST_STATE="unreachable"
+        fi
+    fi
+    
+    sleep 300
+done
+EOF
+                        sudo chmod +x "$SCRIPT_PATH"
+                    }
 
-                    # Remove files
-                    sudo rm -f "$SERVICE_PATH" "$SCRIPT_PATH" "$CONFIG_PATH"
+                    # Install script and service
+                    install_service() {
+                        create_service_file
 
-                    # Reload systemd
-                    sudo systemctl daemon-reload
+                        # Reload systemd, enable and start service
+                        sudo systemctl daemon-reload
+                        sudo systemctl enable "$SCRIPT_NAME.service"
+                        sudo systemctl start "$SCRIPT_NAME.service"
 
-                    whiptail --msgbox "Service removed successfully!" 10 60
-                }
+                        whiptail --msgbox "Service installed and started successfully!" 10 60
+                    }
 
-                # Monitoring function
-                monitor_servers() {
-                    # Source config file
-                    source "$CONFIG_PATH"
+                    # Uninstall service
+                    uninstall_service() {
+                        # Stop and disable service
+                        sudo systemctl stop "$SCRIPT_NAME.service"
+                        sudo systemctl disable "$SCRIPT_NAME.service"
 
-                    # Global variables to track server status
-                    CURRENT_SERVER_IP=""
-                    BACKUP_SERVER_LAST_STATE="unreachable"
+                        # Remove files
+                        sudo rm -f "$SERVICE_PATH" "$SCRIPT_PATH" "$CONFIG_PATH"
 
-                    while true; do
-                        # Ping backup server
-                        if ping -c 3 "$BACKUP_SERVER_IP" > /dev/null 2>&1; then
-                            # If backup server was previously unreachable, switch to it
-                            if [ "$BACKUP_SERVER_LAST_STATE" == "unreachable" ] || [ "$CURRENT_SERVER_IP" != "$BACKUP_SERVER_IP" ]; then
-                                update_dns_record "$BACKUP_SERVER_IP"
-                                BACKUP_SERVER_LAST_STATE="reachable"
-                            fi
-                        else
-                            # If current server is backup server, switch back to primary
-                            if [ "$CURRENT_SERVER_IP" == "$BACKUP_SERVER_IP" ]; then
-                                update_dns_record "$PRIMARY_SERVER_IP"
-                                BACKUP_SERVER_LAST_STATE="unreachable"
-                            fi
-                        fi
+                        # Reload systemd
+                        sudo systemctl daemon-reload
+
+                        whiptail --msgbox "Service removed successfully!" 10 60
+                    }
+
+                    # Enhanced status checking function
+                    check_current_server_status() {
+                        # Source the configuration
+                        source "$CONFIG_PATH"
+
+                        # Fetch current DNS record
+                        RECORD_RESPONSE=$(curl -s -X GET \
+                            "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?type=A&name=$SUBDOMAIN.$DOMAIN" \
+                            -H "Authorization: Bearer $CF_API_KEY" \
+                            -H "Content-Type: application/json")
                         
-                        # Wait for 5 minutes
-                        sleep 300
+                        # Extract current IP
+                        CURRENT_IP=$(echo "$RECORD_RESPONSE" | jq -r '.result[0].content')
+
+                        # Determine which server is active
+                        if [ "$CURRENT_IP" == "$KHAREJ_SERVER_IP" ]; then
+                            SERVER_STATUS="Kharej Server ($KHAREJ_SERVER_IP) is Active"
+                        elif [ "$CURRENT_IP" == "$IRAN_SERVER_IP" ]; then
+                            SERVER_STATUS="Iran Server ($IRAN_SERVER_IP) is Active"
+                        else
+                            SERVER_STATUS="Unknown Server IP ($CURRENT_IP)"
+                        fi
+
+                        # Get systemd service status
+                        SERVICE_STATUS=$(systemctl is-active "$SCRIPT_NAME.service")
+
+                        # Show detailed status
+                        whiptail --title "Service Status" --msgbox "
+Service State: $SERVICE_STATUS
+Active Server: $SERVER_STATUS
+
+Kharej Server IP: $KHAREJ_SERVER_IP
+Iran Server IP: $IRAN_SERVER_IP
+Domain: $SUBDOMAIN.$DOMAIN" 15 60
+                    }
+
+                    # Cloudflare DDNS Menu
+                    while true; do
+                        CHOICE=$(whiptail --title "Cloudflare Dynamic DNS Management" --menu "Choose an option:" 15 60 7 \
+                            "1" "Install and Configure Service" \
+                            "2" "Start Service" \
+                            "3" "Stop Service" \
+                            "4" "Restart Service" \
+                            "5" "Check Service Status" \
+                            "6" "Remove Service" \
+                            "7" "Return to Main Menu" 3>&1 1>&2 2>&3)
+
+                        case $CHOICE in
+                            1)
+                                check_dependencies
+                                get_configuration
+                                find_zone_id
+                                save_configuration
+                                install_service
+                                ;;
+                            2)
+                                sudo systemctl start "$SCRIPT_NAME.service"
+                                whiptail --msgbox "Service started!" 10 60
+                                ;;
+                            3)
+                                sudo systemctl stop "$SCRIPT_NAME.service"
+                                whiptail --msgbox "Service stopped!" 10 60
+                                ;;
+                            4)
+                                sudo systemctl restart "$SCRIPT_NAME.service"
+                                whiptail --msgbox "Service restarted!" 10 60
+                                ;;
+                            5)
+                                check_current_server_status
+                                ;;
+                            6)
+                                uninstall_service
+                                ;;
+                            7)
+                                return
+                                ;;
+                            *)
+                                whiptail --msgbox "Invalid option" 10 60
+                                ;;
+                        esac
                     done
                 }
-
-                # Update DNS record via Cloudflare API
-                update_dns_record() {
-                    local TARGET_IP=$1
-                    
-                    # Get existing DNS record
-                    RECORD_RESPONSE=$(curl -s -X GET \
-                        "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?type=A&name=$SUBDOMAIN.$DOMAIN" \
-                        -H "Authorization: Bearer $CF_API_KEY" \
-                        -H "Content-Type: application/json")
-                    
-                    RECORD_ID=$(echo "$RECORD_RESPONSE" | jq -r '.result[0].id')
-                    
-                    # Update DNS record
-                    UPDATE_RESPONSE=$(curl -s -X PUT \
-                        "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$RECORD_ID" \
-                        -H "Authorization: Bearer $CF_API_KEY" \
-                        -H "Content-Type: application/json" \
-                        --data "{\"type\":\"A\",\"name\":\"$SUBDOMAIN\",\"content\":\"$TARGET_IP\",\"ttl\":1,\"proxied\":false}")
-                    
-                    # Log and notify result
-                    if echo "$UPDATE_RESPONSE" | jq -e '.success' > /dev/null; then
-                        echo "DNS updated to $TARGET_IP" | systemd-cat -t cloudflare-ddns -p info
-                        CURRENT_SERVER_IP="$TARGET_IP"
-                    else
-                        echo "DNS update failed" | systemd-cat -t cloudflare-ddns -p err
-                    fi
-                }
-
-                # Enhanced status checking function
-                check_current_server_status() {
-                    # Source the configuration
-                    source "$CONFIG_PATH"
-
-                    # Fetch current DNS record
-                    RECORD_RESPONSE=$(curl -s -X GET \
-                        "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?type=A&name=$SUBDOMAIN.$DOMAIN" \
-                        -H "Authorization: Bearer $CF_API_KEY" \
-                        -H "Content-Type: application/json")
-                    
-                    # Extract current IP
-                    CURRENT_IP=$(echo "$RECORD_RESPONSE" | jq -r '.result[0].content')
-
-                    # Determine which server is active
-                    if [ "$CURRENT_IP" == "$PRIMARY_SERVER_IP" ]; then
-                        SERVER_STATUS="Kharej Server ($PRIMARY_SERVER_IP) is Active"
-                    elif [ "$CURRENT_IP" == "$BACKUP_SERVER_IP" ]; then
-                        SERVER_STATUS="Iran Server ($BACKUP_SERVER_IP) is Active"
-                    else
-                        SERVER_STATUS="Unknown Server IP ($CURRENT_IP)"
-                    fi
-
-                    # Get systemd service status
-                    SERVICE_STATUS=$(systemctl is-active "$SCRIPT_NAME.service")
-
-                    # Show detailed status
-                    whiptail --title "Service Status" --msgbox "
-                    Service State: $SERVICE_STATUS
-                    Active Server: $SERVER_STATUS
-
-                    Kharej Server IP: $PRIMARY_SERVER_IP
-                    Iran Server IP: $BACKUP_SERVER_IP
-                    Domain: $SUBDOMAIN.$DOMAIN" 15 60
-                }
-
-                # Main menu
-                main_menu() {
-                    CHOICE=$(whiptail --title "Cloudflare Dynamic DNS Management" --menu "Choose an option:" 15 60 6 \
-                        "1" "Install and Configure Service" \
-                        "2" "Start Service" \
-                        "3" "Stop Service" \
-                        "4" "Restart Service" \
-                        "5" "Check Service Status" \
-                        "6" "Remove Service" \
-                        "7" "Exit" 3>&1 1>&2 2>&3)
-
-                    case $CHOICE in
-                        1)
-                            check_dependencies
-                            get_configuration
-                            find_zone_id
-                            save_configuration
-                            install_service
-                            ;;
-                        2)
-                            sudo systemctl start "$SCRIPT_NAME.service"
-                            whiptail --msgbox "Service started!" 10 60
-                            ;;
-                        3)
-                            sudo systemctl stop "$SCRIPT_NAME.service"
-                            whiptail --msgbox "Service stopped!" 10 60
-                            ;;
-                        4)
-                            sudo systemctl restart "$SCRIPT_NAME.service"
-                            whiptail --msgbox "Service restarted!" 10 60
-                            ;;
-                        5)
-                            check_current_server_status
-                            ;;
-                        6)
-                            uninstall_service
-                            ;;
-                        7)
-                            break
-                            ;;
-                        *)
-                            whiptail --msgbox "Invalid option" 10 60
-                            ;;
-                    esac
-                }
-
-                # Script entry point
-                case "$1" in 
-                    monitor)
-                        monitor_servers
-                        ;;
-                    *)
-                        main_menu
-                        ;;
-                esac
                 ;;
             "13")
                 # Exit option
