@@ -18,6 +18,8 @@ if os.geteuid() != 0:
     print("\033[91mThis script must be run as root. Please use sudo -i.\033[0m")
     sys.exit(1)
 
+false="false"
+
 def install_prerequisites():
     print("\033[93mInstalling prerequisites...\033[0m")
     if platform.system() == "Linux":
