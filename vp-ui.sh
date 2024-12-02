@@ -764,7 +764,7 @@ EOF
 
 
 certificates(){
-    while
+    while true; do
         x3=$(whiptail --title "SSL Certificate" --menu "SSL Certificate, choose an option:" 20 80 2 \
             "1" "Certificate for Subdomain SSL" \
             "2" "Revoke Certificate SSL" 3>&1 1>&2 2>&3)
