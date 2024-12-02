@@ -2,18 +2,18 @@
 
 
 export NEWT_COLORS='
-root=white,magenta
-border=white,magenta
-window=white,magenta
-title=white,magenta
+root=,pink
+border=white,pink
+window=white,pink
+shadow=white,darkred
+title=red,pink
+textbox=purple,pink
 button=black,white
 actbutton=black,white
-compactbutton=black,white
-listbox=white,magenta
-actlistbox=white,magenta
-textbox=white,magenta
-acttextbox=white,magenta
-shadow=white,magenta
+compactbutton=white,pink
+listbox=purple,pink
+actlistbox=white,red
+acttextbox=purple,pink
 '
 
 
