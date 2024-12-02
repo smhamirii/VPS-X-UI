@@ -233,6 +233,7 @@ xui_complex(){
                 ;;
             *)
                 return 1
+                ;;
         esac
     done
 }
@@ -351,6 +352,7 @@ EOL
                 ;;
             *)
                 return 1
+                ;;
         esac
     done
 }
@@ -765,11 +767,11 @@ EOF
 
 certificates(){
     while true; do
-        x3=$(whiptail --title "SSL Certificate" --menu "SSL Certificate, choose an option:" 20 80 2 \
+        sslv=$(whiptail --title "SSL Certificate" --menu "SSL Certificate, choose an option:" 20 80 2 \
             "1" "Certificate for Subdomain SSL" \
             "2" "Revoke Certificate SSL" 3>&1 1>&2 2>&3)
 
-        case "$x3" in
+        case "$sslv" in
             "1")
                 # Install cron if not already installed and enable it
                 sudo apt install cron -y
