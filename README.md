@@ -1,6 +1,6 @@
 # VPN Creator Script
 
-![VPN Creator Script](Screenshot%12_3_2024%1_00_15%AM.png)
+![VPN Creator Script](Screenshot%2012_3_2024%201_00_15%20AM.png)
 
 [![Install VPN Creator](https://img.shields.io/badge/Install-VPN%20Creator-brightgreen?style=for-the-badge)](#installation)
 [![Contribute](https://img.shields.io/badge/Contribute-blue?style=for-the-badge)](#contributing)
