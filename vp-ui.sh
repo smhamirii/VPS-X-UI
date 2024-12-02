@@ -1,22 +1,6 @@
 #!/usr/bin/bash
 
 
-export NEWT_COLORS='
-root=,pink
-border=white,pink
-window=white,pink
-shadow=white,darkred
-title=red,pink
-textbox=purple,pink
-button=black,white
-actbutton=black,white
-compactbutton=white,pink
-listbox=purple,pink
-actlistbox=white,red
-acttextbox=purple,pink
-'
-
-
 server_upgrade(){
     # Choose server location
     server_location=$(whiptail --title "Choose Server" --menu "Choose server location:" 15 60 2 \
