@@ -1315,7 +1315,7 @@ main_program() {
 cd
 
 # Install speedtest-cli
-apt-get update && apt-get install speedtest-cli
+apt-get install speedtest-cli
 
 # Function to perform speed test using speedtest-cli
 perform_speed_test() {
