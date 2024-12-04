@@ -2,92 +2,52 @@
 
 
 server_upgrade(){
-    # Choose server location
-    server_location=$(whiptail --title "Choose Server" --menu "Choose server location:" 15 60 2 \
-        "1" "Iran" \
-        "2" "Kharej" 3>&1 1>&2 2>&3)
 
-    if [[ "$server_location" == "1" ]]; then
-        sudo rm /etc/resolv.conf
-        sudo touch /etc/resolv.conf
-        echo "nameserver 8.8.8.8" | sudo tee -a /etc/resolv.conf
-        echo "nameserver 4.2.2.4" | sudo tee -a /etc/resolv.conf           
-    elif [[ "$server_location" == "2" ]]; then
-        sudo rm /etc/resolv.conf
-        sudo touch /etc/resolv.conf
-        echo "nameserver 1.1.1.1" | sudo tee -a /etc/resolv.conf
-        echo "nameserver 1.0.0.1" | sudo tee -a /etc/resolv.conf
+    # setup condition
+    upgrade_choose=$(whiptail --title "Choose Server" --menu "Choose server location:" 15 60 4 \
+        "1" "Upgrade" \
+        "2" "BBR Setup" \
+        "3" "DNS Update" \
+        "4" "Exit" 3>&1 1>&2 2>&3)
+
+    if [[ "$upgrade_choose" == "1" ]]; then
+
+        sudo apt upgrade -y  
+
+    elif [[ "$upgrade_choose" == "2" ]]; then
+
+        # Enable BBR by adding it to sysctl configuration
+        echo "net.core.default_qdisc=fq" | sudo tee -a /etc/sysctl.conf
+        echo "net.ipv4.tcp_congestion_control=bbr" | sudo tee -a /etc/sysctl.conf
+
+        # Apply the changes immediately
+        sudo sysctl -p
+        
+    elif [[ "$upgrade_choose" == "3" ]]; then
+
+        # Choose server location
+        server_location=$(whiptail --title "Choose Server" --menu "Choose server location:" 15 60 2 \
+            "1" "Iran" \
+            "2" "Kharej" 3>&1 1>&2 2>&3)
+
+        if [[ "$server_location" == "1" ]]; then
+            sudo rm /etc/resolv.conf
+            sudo touch /etc/resolv.conf
+            echo "nameserver 8.8.8.8" | sudo tee -a /etc/resolv.conf
+            echo "nameserver 4.2.2.4" | sudo tee -a /etc/resolv.conf           
+        elif [[ "$server_location" == "2" ]]; then
+            sudo rm /etc/resolv.conf
+            sudo touch /etc/resolv.conf
+            echo "nameserver 1.1.1.1" | sudo tee -a /etc/resolv.conf
+            echo "nameserver 1.0.0.1" | sudo tee -a /etc/resolv.conf
+        else
+            whiptail --msgbox "Invalid response. Please enter 1 or 2." 8 45
+        fi    
+
     else
-        whiptail --msgbox "Invalid response. Please enter 1 or 2." 8 45
+        whiptail --msgbox "Invalid response." 8 45
     fi
-    
-    #update dns
-    sudo systemd-resolve --flush-caches
-    sudo systemctl restart systemd-resolved
-
-    # Enable BBR congestion control for better throughput
-    sudo tee /etc/sysctl.conf > /dev/null <<EOF
-net.core.default_qdisc=fq
-net.ipv4.tcp_congestion_control=bbr
-net.ipv4.tcp_fastopen=3
-net.ipv4.tcp_fin_timeout=30
-net.ipv4.tcp_keepalive_time=1200
-net.core.wmem_max=67108864
-net.core.rmem_max=67108864
-net.ipv4.tcp_wmem=4096 87380 67108864
-net.ipv4.tcp_rmem=4096 87380 67108864
-net.core.netdev_max_backlog=250000
-net.core.somaxconn=32768
-EOF
-
-    # Apply sysctl settings
-    sudo sysctl -p
-
-    # Optimize system limits
-    sudo tee /etc/security/limits.conf > /dev/null <<EOF
-* soft     nproc          655350
-* hard     nproc          655350
-* soft     nofile         655350
-* hard     nofile         655350
-root soft     nproc          655350
-root hard     nproc          655350
-root soft     nofile         655350
-root hard     nofile         655350
-EOF
-
-    #upgrade
-    sudo apt upgrade -y
-
-    # Step 2: Install unattended-upgrades if not already installed
-    sudo apt install -y unattended-upgrades
-
-    # Step 3: Enable unattended-upgrades
-    sudo dpkg-reconfigure --priority=low unattended-upgrades -y
-
-    # Step 4: Configure unattended-upgrades to apply kernel updates and reboot automatically
-    # Unattended-Upgrades Configuration File
-    CONFIG_FILE="/etc/apt/apt.conf.d/50unattended-upgrades"
-
-    # Backup existing configuration
-    sudo cp $CONFIG_FILE $CONFIG_FILE.bak
-
-    # Modify configuration to ensure kernel updates and reboots are enabled
-    sudo sed -i '/^\/\/ "${distro_id}:${distro_codename}-updates";/s/^\/\///' $CONFIG_FILE
-    sudo sed -i '/^\/\/ Unattended-Upgrade::Automatic-Reboot "false";/s/^\/\///' $CONFIG_FILE
-    sudo sed -i 's/Unattended-Upgrade::Automatic-Reboot "false"/Unattended-Upgrade::Automatic-Reboot "true"/' $CONFIG_FILE
-    sudo sed -i 's/\/\/ Unattended-Upgrade::Automatic-Reboot-Time "02:00"/Unattended-Upgrade::Automatic-Reboot-Time "02:00"/' $CONFIG_FILE
-
-    # Step 5: Enable automatic updates
-    AUTO_UPGRADES_FILE="/etc/apt/apt.conf.d/20auto-upgrades"
-
-    # Ensure this file contains the required lines for periodic updates
-    echo 'APT::Periodic::Update-Package-Lists "1";' | sudo tee $AUTO_UPGRADES_FILE > /dev/null
-    echo 'APT::Periodic::Unattended-Upgrade "1";' | sudo tee -a $AUTO_UPGRADES_FILE > /dev/null
-
-    # Step 6: Restart unattended-upgrades service
-    sudo systemctl restart unattended-upgrades
-    echo "Kernel auto-upgrade setup completed."
-    
+        
     # clear screen
     clear    
 }
