@@ -1241,6 +1241,10 @@ main_program() {
     while true; do
         # main directory
         cd
+        
+        # Start the speed monitor in the background
+        update_speed_display &
+        SPEED_MONITOR_PID=$!
 
         # Main menu
         main_obj=$(whiptail --title "SAMIR VPN Creator" --menu "Welcome to Samir VPN Creator, choose an option:" 20 80 12 \
@@ -1256,6 +1260,14 @@ main_program() {
             "10" "Change Subdomain IP" \
             "11" "Auto Server Change(should run on kharej)" \
             "12" "Exit" 3>&1 1>&2 2>&3)
+
+
+        if [ $? -ne 0 ]; then
+            # Kill the speed monitor process when exiting
+            kill $SPEED_MONITOR_PID 2>/dev/null
+            exit
+        fi
+
 
         case "$main_obj" in
             "1")
@@ -1292,6 +1304,7 @@ main_program() {
                 auto_ip_change
                 ;;
             "12")
+                kill $SPEED_MONITOR_PID 2>/dev/null
                 exit 0
                 ;;
         esac
@@ -1300,6 +1313,39 @@ main_program() {
 
 # main directory
 cd
+
+# Install speedtest-cli
+apt-get update && apt-get install speedtest-cli
+
+# Function to perform speed test using speedtest-cli
+perform_speed_test() {
+    # Check if speedtest-cli is installed
+    if ! command -v speedtest-cli &> /dev/null; then
+        apt-get update && apt-get install -y speedtest-cli
+    fi
+    
+    # Run speed test and extract download/upload speeds
+    result=$(speedtest-cli --simple)
+    echo "$result"
+}
+
+
+# Function to update the display
+update_speed_display() {
+    while true; do
+        # Get speed test results
+        speed_result=$(perform_speed_test)
+        download_speed=$(echo "$speed_result" | grep "Download" | awk '{print $2}')
+        upload_speed=$(echo "$speed_result" | grep "Upload" | awk '{print $2}')
+        
+        # Update the display using whiptail --infobox
+        whiptail --title "Speed Test" --infobox "Download: $download_speed Mbit/s\nUpload: $upload_speed Mbit/s\n\nUpdated: $(date '+%H:%M:%S')" 8 40 &
+        
+        # Wait for 1 minute before next update
+        sleep 60
+    done
+}
+
 
 # starter menu
 starter_menu=$(whiptail --title "Welcome" --menu "First time or not:" 15 60 3 \
