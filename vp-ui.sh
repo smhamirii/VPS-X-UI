@@ -1237,42 +1237,83 @@ Domain: $SUBDOMAIN.$DOMAIN" 15 60
 
 
 speed_testi(){
-    local result=""
-    local download=""
-    local upload=""
-    local ping=""
+    # Function to check and install packages
+    install_deps() {
+        local packages=("curl" "ookla-speedtest-cli" "fast-cli")
+        for pkg in "${packages[@]}"; do
+            if ! command -v ${pkg} &> /dev/null; then
+                case $pkg in
+                    "ookla-speedtest-cli")
+                        curl -s https://packagecloud.io/install/repositories/ookla/speedtest-cli/script.deb.sh | sudo bash
+                        sudo apt-get install speedtest
+                        ;;
+                    "fast-cli")
+                        sudo npm install -g fast-cli
+                        ;;
+                    *)
+                        sudo apt-get install -y $pkg
+                        ;;
+                esac
+            fi
+        done
+    }
 
-    {
-        echo 0
-        echo "# Initializing..."
-        sleep 1
-        
-        echo 25
-        echo "# Running speed test..."
-        result=$(speedtest-cli --simple)
-        
-        echo 75
-        echo "# Processing results..."
-        download=$(echo "$result" | grep "Download" | awk '{print $2}')
-        upload=$(echo "$result" | grep "Upload" | awk '{print $2}')
-        ping=$(echo "$result" | grep "Ping" | awk '{print $2}')
-        
-        echo 100
-        echo "# Complete"
-        sleep 1
-    } | whiptail --gauge "Running Speed Test" 8 50 0
+    # Function to run Ookla speedtest
+    ookla_test() {
+        local temp_file=$(mktemp)
+        {
+            speedtest --format=json --progress=yes 2>&1 | while IFS= read -r line; do
+                if [[ $line == *"Download"* ]]; then
+                    speed=$(echo $line | grep -o '[0-9.]*')
+                    echo "XXX"
+                    echo "50"
+                    echo "Download Speed: $speed Mbps"
+                    echo "XXX"
+                elif [[ $line == *"Upload"* ]]; then
+                    speed=$(echo $line | grep -o '[0-9.]*')
+                    echo "XXX"
+                    echo "75"
+                    echo "Upload Speed: $speed Mbps"
+                    echo "XXX"
+                fi
+            done > $temp_file &
+        } | whiptail --gauge "Running Ookla Speedtest..." 8 50 0
+        cat $temp_file
+        rm $temp_file
+    }
 
-    # Display results in separate dialog
-    if [ -n "$download" ] && [ -n "$upload" ] && [ -n "$ping" ]; then
-        whiptail --title "Speed Test Results" --msgbox "\
-Network Speed Test Results
-------------------------
-Download: $download Mbps
-Upload: $upload Mbps
-Ping: $ping ms" 12 40
-    else
-        whiptail --title "Error" --msgbox "Failed to get speed test results" 8 40
-    fi
+    # Function to run Fast.com test
+    fast_test() {
+        local temp_file=$(mktemp)
+        {
+            fast --json 2>&1 | while IFS= read -r line; do
+                if [[ $line == *"downloadSpeed"* ]]; then
+                    speed=$(echo $line | grep -o '[0-9.]*')
+                    echo "XXX"
+                    echo "50"
+                    echo "Download Speed: $speed Mbps"
+                    echo "XXX"
+                fi
+            done > $temp_file &
+        } | whiptail --gauge "Running Fast.com Test..." 8 50 0
+        cat $temp_file
+        rm $temp_file
+    }
+
+    # Main menu
+    while true; do
+        CHOICE=$(whiptail --title "Network Speed Test" \
+            --menu "Choose a Speed Test Service:" 12 45 3 \
+            "1" "Ookla Speedtest" \
+            "2" "Fast.com" \
+            "3" "Exit" 3>&1 1>&2 2>&3)
+
+        case $CHOICE in
+            1) ookla_test ;;
+            2) fast_test ;;
+            3) exit ;;
+        esac
+    done
 }
 
 
