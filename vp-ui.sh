@@ -1239,66 +1239,59 @@ Domain: $SUBDOMAIN.$DOMAIN" 15 60
 speed_testi(){
     # Function to check and install packages
     install_deps() {
-        local packages=("curl" "ookla-speedtest-cli" "fast-cli")
+        local packages=("curl" "whiptail" "npm")
+        
+        # Check for root privileges
+        if [[ $EUID -ne 0 ]]; then
+            echo "This script requires root privileges to install dependencies."
+            return 1
+        fi
+
+        # Update package list
+        apt-get update
+
         for pkg in "${packages[@]}"; do
-            if ! command -v ${pkg} &> /dev/null; then
-                case $pkg in
-                    "ookla-speedtest-cli")
-                        curl -s https://packagecloud.io/install/repositories/ookla/speedtest-cli/script.deb.sh | sudo bash
-                        sudo apt-get install speedtest
-                        ;;
-                    "fast-cli")
-                        sudo npm install -g fast-cli
-                        ;;
-                    *)
-                        sudo apt-get install -y $pkg
-                        ;;
-                esac
+            if ! command -v "$pkg" &> /dev/null; then
+                apt-get install -y "$pkg"
             fi
         done
+
+        # Install Ookla speedtest
+        if ! command -v speedtest &> /dev/null; then
+            curl -s https://packagecloud.io/install/repositories/ookla/speedtest-cli/script.deb.sh | bash
+            apt-get install -y speedtest
+        fi
+
+        # Install fast-cli
+        if ! command -v fast &> /dev/null; then
+            npm install -g fast-cli
+        fi
     }
 
     # Function to run Ookla speedtest
     ookla_test() {
         local temp_file=$(mktemp)
         {
-            speedtest --format=json --progress=yes 2>&1 | while IFS= read -r line; do
-                if [[ $line == *"Download"* ]]; then
-                    speed=$(echo $line | grep -o '[0-9.]*')
-                    echo "XXX"
-                    echo "50"
-                    echo "Download Speed: $speed Mbps"
-                    echo "XXX"
-                elif [[ $line == *"Upload"* ]]; then
-                    speed=$(echo $line | grep -o '[0-9.]*')
-                    echo "XXX"
-                    echo "75"
-                    echo "Upload Speed: $speed Mbps"
-                    echo "XXX"
-                fi
-            done > $temp_file &
+            speedtest --format=json --progress=no 2>/dev/null | \
+            jq -r '"XXX\n50\nDownload: \(.download.bandwidth / 125000) Mbps\nXXX\n75\nUpload: \(.upload.bandwidth / 125000) Mbps\nXXX"' > "$temp_file"
         } | whiptail --gauge "Running Ookla Speedtest..." 8 50 0
-        cat $temp_file
-        rm $temp_file
+        cat "$temp_file"
+        rm "$temp_file"
     }
 
     # Function to run Fast.com test
     fast_test() {
         local temp_file=$(mktemp)
         {
-            fast --json 2>&1 | while IFS= read -r line; do
-                if [[ $line == *"downloadSpeed"* ]]; then
-                    speed=$(echo $line | grep -o '[0-9.]*')
-                    echo "XXX"
-                    echo "50"
-                    echo "Download Speed: $speed Mbps"
-                    echo "XXX"
-                fi
-            done > $temp_file &
+            fast --json 2>/dev/null | \
+            jq -r '"XXX\n50\nDownload: \(.downloadSpeed) Mbps\nXXX"' > "$temp_file"
         } | whiptail --gauge "Running Fast.com Test..." 8 50 0
-        cat $temp_file
-        rm $temp_file
+        cat "$temp_file"
+        rm "$temp_file"
     }
+
+    # Install dependencies if needed
+    install_deps
 
     # Main menu
     while true; do
@@ -1307,11 +1300,16 @@ speed_testi(){
             "1" "Ookla Speedtest" \
             "2" "Fast.com" \
             "3" "Exit" 3>&1 1>&2 2>&3)
+        
+        exitstatus=$?
+        if [ $exitstatus != 0 ]; then
+            exit
+        fi
 
         case $CHOICE in
             1) ookla_test ;;
             2) fast_test ;;
-            3) exit ;;
+            3) exit 0 ;;
         esac
     done
 }
