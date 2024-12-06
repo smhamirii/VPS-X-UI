@@ -1236,75 +1236,107 @@ Domain: $SUBDOMAIN.$DOMAIN" 15 60
 }
 
 
+speed_testi(){
+    local result=""
+    local download=""
+    local upload=""
+    local ping=""
+
+    {
+        echo 0
+        echo "# Initializing..."
+        sleep 1
+        
+        echo 25
+        echo "# Running speed test..."
+        result=$(speedtest-cli --simple)
+        
+        echo 75
+        echo "# Processing results..."
+        download=$(echo "$result" | grep "Download" | awk '{print $2}')
+        upload=$(echo "$result" | grep "Upload" | awk '{print $2}')
+        ping=$(echo "$result" | grep "Ping" | awk '{print $2}')
+        
+        echo 100
+        echo "# Complete"
+        sleep 1
+    } | whiptail --gauge "Running Speed Test" 8 50 0
+
+    # Display results in separate dialog
+    if [ -n "$download" ] && [ -n "$upload" ] && [ -n "$ping" ]; then
+        whiptail --title "Speed Test Results" --msgbox "\
+Network Speed Test Results
+------------------------
+Download: $download Mbps
+Upload: $upload Mbps
+Ping: $ping ms" 12 40
+    else
+        whiptail --title "Error" --msgbox "Failed to get speed test results" 8 40
+    fi
+}
+
+
 # main program
 main_program() {
     while true; do
         # main directory
         cd
-        
-        # Start the speed monitor in the background
-        update_speed_display &
-        SPEED_MONITOR_PID=$!
 
         # Main menu
-        main_obj=$(whiptail --title "SAMIR VPN Creator" --menu "Welcome to Samir VPN Creator, choose an option:" 20 80 12 \
-            "1" "Server Upgrade" \
-            "2" "Internet Connection" \
-            "3" "X-UI SERVICE" \
-            "4" "Reverse Tunnel (Old method)" \
-            "5" "Reverse Tunnel (New method)" \
-            "6" "Cetificate + Change IP" \
-            "7" "Virtual RAM" \
-            "8" "Change Main IP(Not Tested)" \
-            "9" "SSL Certificate" \
-            "10" "Change Subdomain IP" \
-            "11" "Auto Server Change(should run on kharej)" \
-            "12" "Exit" 3>&1 1>&2 2>&3)
-
-
-        if [ $? -ne 0 ]; then
-            # Kill the speed monitor process when exiting
-            kill $SPEED_MONITOR_PID 2>/dev/null
-            exit
-        fi
+        main_obj=$(whiptail --title "SAMIR VPN Creator" --menu "Welcome to Samir VPN Creator, choose an option:" 20 80 13 \
+            "1" "X-UI SERVICE" \
+            "2" "Reverse Tunnel (New method)" \
+            "3" "SSL Cetificate + Change Subdomain IP" \
+            "4" "Auto IP Change(run on kharej)" \
+            "5" "Server Upgrade" \
+            "6" "Ping Servers" \
+            "7" "Speed Test" \
+            "8" "Virtual RAM" \
+            "9" "Change VPS Main IP(Not Tested)" \
+            "10" "SSL Certificate" \
+            "11" "Change Subdomain IP" \
+            "12" "Reverse Tunnel (Old method)" \
+            "13" "Exit" 3>&1 1>&2 2>&3)
 
 
         case "$main_obj" in
             "1")
-                server_upgrade
+                xui_complex                
                 ;;
             "2")
-                internet_connection
+                reverse_new   
                 ;;
             "3")
-                xui_complex
+                certificate_complex                
                 ;;
             "4")
-                reverse_old
+                auto_ip_change               
                 ;;
             "5")
-                reverse_new
+                server_upgrade
                 ;;
             "6")
-                certificate_complex
+                internet_connection      
                 ;;
             "7")
-                virtual_ram
+                speed_testi
                 ;;
             "8")
-                change_main_ip
+                virtual_ram        
                 ;;
             "9")
-                certificates
+                change_main_ip       
                 ;;
             "10")
-                subdomains
+                certificates
                 ;;
             "11")
-                auto_ip_change
+                subdomains 
                 ;;
             "12")
-                kill $SPEED_MONITOR_PID 2>/dev/null
+                reverse_old    
+                ;;
+            "13")
                 exit 0
                 ;;
         esac
@@ -1313,38 +1345,6 @@ main_program() {
 
 # main directory
 cd
-
-# Install speedtest-cli
-apt-get install speedtest-cli
-
-# Function to perform speed test using speedtest-cli
-perform_speed_test() {
-    # Check if speedtest-cli is installed
-    if ! command -v speedtest-cli &> /dev/null; then
-        apt-get update && apt-get install -y speedtest-cli
-    fi
-    
-    # Run speed test and extract download/upload speeds
-    result=$(speedtest-cli --simple)
-    echo "$result"
-}
-
-
-# Function to update the display
-update_speed_display() {
-    while true; do
-        # Get speed test results
-        speed_result=$(perform_speed_test)
-        download_speed=$(echo "$speed_result" | grep "Download" | awk '{print $2}')
-        upload_speed=$(echo "$speed_result" | grep "Upload" | awk '{print $2}')
-        
-        # Update the display using whiptail --infobox
-        whiptail --title "Speed Test" --infobox "Download: $download_speed Mbit/s\nUpload: $upload_speed Mbit/s\n\nUpdated: $(date '+%H:%M:%S')" 8 40 &
-        
-        # Wait for 1 minute before next update
-        sleep 60
-    done
-}
 
 
 # starter menu
