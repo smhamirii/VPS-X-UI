@@ -4,11 +4,12 @@
 server_upgrade(){
 
     # setup condition
-    upgrade_choose=$(whiptail --title "Choose Server" --menu "Choose server location:" 15 60 4 \
+    upgrade_choose=$(whiptail --title "Choose Server" --menu "Choose server location:" 15 60 5 \
         "1" "Upgrade" \
         "2" "BBR Setup" \
         "3" "DNS Update" \
-        "4" "Exit" 3>&1 1>&2 2>&3)
+        "4" "Firewall Disable" \
+        "5" "Exit" 3>&1 1>&2 2>&3)
 
     if [[ "$upgrade_choose" == "1" ]]; then
 
@@ -34,18 +35,21 @@ server_upgrade(){
             sudo rm /etc/resolv.conf
             sudo touch /etc/resolv.conf
             echo "nameserver 8.8.8.8" | sudo tee -a /etc/resolv.conf
-            echo "nameserver 4.2.2.4" | sudo tee -a /etc/resolv.conf           
+            echo "nameserver 4.2.2.4" | sudo tee -a /etc/resolv.conf
+            whiptail --msgbox "DNS Updated" 8 45
+
         elif [[ "$server_location" == "2" ]]; then
             sudo rm /etc/resolv.conf
             sudo touch /etc/resolv.conf
             echo "nameserver 1.1.1.1" | sudo tee -a /etc/resolv.conf
             echo "nameserver 1.0.0.1" | sudo tee -a /etc/resolv.conf
-        else
-            whiptail --msgbox "Invalid response. Please enter 1 or 2." 8 45
-        fi    
+            whiptail --msgbox "DNS Updated" 8 45
 
-    else
-        whiptail --msgbox "Invalid response." 8 45
+        fi    
+    elif [[ "$upgrade_choose" == "4" ]]; then
+
+        sudo ufw disable
+    
     fi
         
     # clear screen
@@ -962,6 +966,7 @@ auto_ip_change(){
     # Required dependencies
     REQUIRED_PACKAGES=("jq" "curl" "whiptail")
 
+
     # Check and install dependencies
     check_dependencies() {
         for pkg in "${REQUIRED_PACKAGES[@]}"; do
@@ -976,6 +981,22 @@ auto_ip_change(){
         done
     }
 
+    # Function to send Telegram message
+    send_telegram_message() {
+        local message="$1"
+        
+        # Read chat IDs from config
+        if [ -n "$TELEGRAM_CHAT_IDS" ]; then
+            IFS=',' read -ra CHAT_IDS <<< "$TELEGRAM_CHAT_IDS"
+            for chat_id in "${CHAT_IDS[@]}"; do
+                curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+                    -d "chat_id=${chat_id}" \
+                    -d "text=${message}" \
+                    -d "parse_mode=HTML"
+            done
+        fi
+    }
+
     # Save configuration to a config file
     save_configuration() {
         # Create config file
@@ -986,6 +1007,8 @@ SUBDOMAIN="$SUBDOMAIN"
 KHAREJ_SERVER_IP="$KHAREJ_SERVER_IP"
 IRAN_SERVER_IP="$IRAN_SERVER_IP"
 ZONE_ID="$ZONE_ID"
+TELEGRAM_BOT_TOKEN="$TELEGRAM_BOT_TOKEN"
+TELEGRAM_CHAT_IDS="$TELEGRAM_CHAT_IDS"
 EOF
         sudo chmod 600 "$CONFIG_PATH"
     }
@@ -993,13 +1016,22 @@ EOF
     # Collect configuration from user
     get_configuration() {
         # Cloudflare API Configuration
-        CF_API_KEY=$(whiptail --inputbox "Enter Cloudflare API Key" 10 60 3>&1 1>&2 2>&3) || return 1
-        DOMAIN=$(whiptail --inputbox "Enter Domain (e.g., example.com)" 10 60 3>&1 1>&2 2>&3) || return 1
-        SUBDOMAIN=$(whiptail --inputbox "Enter Subdomain (e.g., server)" 10 60 3>&1 1>&2 2>&3) || return 1
+        CF_API_KEY=$(whiptail --inputbox "Enter Cloudflare API Key" 10 60 3>&1 1>&2 2>&3) || return 1    
+        FULL_DOMAIN=$(whiptail --inputbox "Enter your full domain (e.g., subdomain.example.com):" 10 60 3>&1 1>&2 2>&3) || return 1
+        
+        # Extract domain (everything after the first dot)
+        DOMAIN=$(echo "$FULL_DOMAIN" | sed -E 's/^[^.]+\.//')
+
+        # Extract subdomain (everything before the last two dots)
+        SUBDOMAIN=$(echo "$FULL_DOMAIN" | sed -E 's/^([^.]+).+$/\1/')
         
         # Server IPs
         KHAREJ_SERVER_IP=$(curl -s https://api.ipify.org)
         IRAN_SERVER_IP=$(whiptail --inputbox "Enter Iran Server IP" 10 60 3>&1 1>&2 2>&3) || return 1
+
+        # Telegram Configuration
+        TELEGRAM_BOT_TOKEN=$(whiptail --inputbox "Enter Telegram Bot Token" 10 60 3>&1 1>&2 2>&3) || return 1
+        TELEGRAM_CHAT_IDS=$(whiptail --inputbox "Enter Telegram Chat IDs (comma-separated for multiple users)" 10 60 3>&1 1>&2 2>&3) || return 1
     }
 
     # Automatically find Zone ID
@@ -1024,18 +1056,29 @@ EOF
 #!/bin/bash
 
 CONFIG_PATH="/etc/cloudflare-ddns.conf"
-# Source config file
 source "$CONFIG_PATH"
 
-# Global variables to track server status
 CURRENT_SERVER_IP=""
 IRAN_SERVER_LAST_STATE="unreachable"
 LAST_SWITCH_TIMESTAMP=0
 
+send_telegram_notification() {
+    local message="$1"
+    if [ -n "$TELEGRAM_CHAT_IDS" ]; then
+        IFS=',' read -ra CHAT_IDS <<< "$TELEGRAM_CHAT_IDS"
+        for chat_id in "${CHAT_IDS[@]}"; do
+            curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+                -d "chat_id=${chat_id}" \
+                -d "text=${message}" \
+                -d "parse_mode=HTML"
+        done
+    fi
+}
+
 update_dns_record() {
     local TARGET_IP=$1
+    local SWITCH_REASON=$2
     
-    # Get existing DNS record
     RECORD_RESPONSE=$(curl -s -X GET \
         "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?type=A&name=$SUBDOMAIN.$DOMAIN" \
         -H "Authorization: Bearer $CF_API_KEY" \
@@ -1043,7 +1086,6 @@ update_dns_record() {
     
     RECORD_ID=$(echo "$RECORD_RESPONSE" | jq -r '.result[0].id')
     
-    # Update DNS record
     UPDATE_RESPONSE=$(curl -s -X PUT \
         "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$RECORD_ID" \
         -H "Authorization: Bearer $CF_API_KEY" \
@@ -1051,40 +1093,39 @@ update_dns_record() {
         --data "{\"type\":\"A\",\"name\":\"$SUBDOMAIN\",\"content\":\"$TARGET_IP\",\"ttl\":1,\"proxied\":false}")
     
     if echo "$UPDATE_RESPONSE" | jq -e '.success' > /dev/null; then
+        NOTIFICATION_MSG="🔄 DNS Update Alert\n\nDomain: $SUBDOMAIN.$DOMAIN\nNew IP: $TARGET_IP\nReason: $SWITCH_REASON\nTimestamp: $(date '+%Y-%m-%d %H:%M:%S')"
+        send_telegram_notification "$NOTIFICATION_MSG"
         echo "DNS updated to $TARGET_IP" | systemd-cat -t cloudflare-ddns -p info
         CURRENT_SERVER_IP="$TARGET_IP"
         LAST_SWITCH_TIMESTAMP=$(date +%s)
     else
+        NOTIFICATION_MSG="⚠️ DNS Update Failed\n\nDomain: $SUBDOMAIN.$DOMAIN\nAttempted IP: $TARGET_IP\nTimestamp: $(date '+%Y-%m-%d %H:%M:%S')"
+        send_telegram_notification "$NOTIFICATION_MSG"
         echo "DNS update failed" | systemd-cat -t cloudflare-ddns -p err
     fi
 }
 
-# Cooldown period to prevent rapid switching (5 minutes)
 SWITCH_COOLDOWN=300
 
 while true; do
     CURRENT_TIME=$(date +%s)
     ELAPSED_SINCE_LAST_SWITCH=$((CURRENT_TIME - LAST_SWITCH_TIMESTAMP))
 
-    # Ping IRAN SERVER
     if ping -c 3 "$IRAN_SERVER_IP" > /dev/null 2>&1; then
-        # If Iran server is reachable and we've waited at least the cooldown period
         if [ "$IRAN_SERVER_LAST_STATE" == "unreachable" ] || 
-        [ "$CURRENT_SERVER_IP" != "$IRAN_SERVER_IP" ] || 
-        [ "$ELAPSED_SINCE_LAST_SWITCH" -ge "$SWITCH_COOLDOWN" ]; then
-            update_dns_record "$IRAN_SERVER_IP"
+           [ "$CURRENT_SERVER_IP" != "$IRAN_SERVER_IP" ] || 
+           [ "$ELAPSED_SINCE_LAST_SWITCH" -ge "$SWITCH_COOLDOWN" ]; then
+            update_dns_record "$IRAN_SERVER_IP" "Iran server is now reachable"
             IRAN_SERVER_LAST_STATE="reachable"
         fi
     else
-        # If Iran server is unreachable and we've been using Iran server IP
         if [ "$CURRENT_SERVER_IP" == "$IRAN_SERVER_IP" ] || 
-        [ "$ELAPSED_SINCE_LAST_SWITCH" -ge "$SWITCH_COOLDOWN" ]; then
-            update_dns_record "$KHAREJ_SERVER_IP"
+           [ "$ELAPSED_SINCE_LAST_SWITCH" -ge "$SWITCH_COOLDOWN" ]; then
+            update_dns_record "$KHAREJ_SERVER_IP" "Iran server is unreachable"
             IRAN_SERVER_LAST_STATE="unreachable"
         fi
     fi
     
-    # Wait 5 minutes before next check
     sleep 300
 done
 EOF
@@ -1230,6 +1271,7 @@ Domain: $SUBDOMAIN.$DOMAIN" 15 60
             esac
         done
     }
+
 
     # Run the main menu
     main_menu1
