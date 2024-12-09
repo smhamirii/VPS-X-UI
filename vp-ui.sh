@@ -1385,7 +1385,7 @@ main_program() {
                 virtual_ram        
                 ;;
             "9")
-                change_main_ip       
+                change_main_ip1       
                 ;;
             "10")
                 certificates
@@ -1467,3 +1467,149 @@ elif [[ "$starter_menu" == "2" ]]; then
 else
     exit 0
 fi
+
+change_main_ip1(){
+    
+    # Check if required tools are installed
+    check_requirements() {
+        local required_tools=("ip" "awk" "grep" "cut")
+        
+        for tool in "${required_tools[@]}"; do
+            if ! command -v "$tool" &>/dev/null; then
+                echo "Error: Required tool '$tool' is not installed"
+                echo "Please install it using: sudo apt-get install iproute2 gawk grep coreutils"
+                exit 1
+            fi
+        done
+    }
+
+    # Function to verify network service is running
+    check_networking_service() {
+        if ! systemctl is-active --quiet systemd-networkd; then
+            echo "Warning: systemd-networkd is not running"
+            echo "Attempting to start networking service..."
+            sudo systemctl start systemd-networkd
+            sleep 2
+        fi
+    }
+
+    # Function to get all IPv4 addresses
+    get_ipv4_addresses() {
+        local ips=$(ip -4 addr show | grep inet | grep -v '127.0.0.1' | awk '{print $2}' | cut -d'/' -f1)
+        if [ -z "$ips" ]; then
+            echo "Error: No valid IPv4 addresses found"
+            exit 1
+        fi
+        echo "$ips"
+    }
+
+    # Function to get current main IP
+    get_current_main_ip() {
+        local main_ip=$(ip route get 1.1.1.1 | grep -oP 'src \K\S+')
+        if [ -z "$main_ip" ]; then
+            echo "Error: Could not determine current main IP"
+            exit 1
+        fi
+        echo "$main_ip"
+    }
+
+    # Function to backup current network configuration
+    backup_network_config() {
+        local backup_dir="/root/network_backup"
+        mkdir -p "$backup_dir"
+        cp /etc/netplan/*.yaml "$backup_dir/" 2>/dev/null || true
+        ip route show > "$backup_dir/routes_backup_$(date +%Y%m%d_%H%M%S).txt"
+        echo "Network configuration backed up to $backup_dir"
+    }
+
+    # Function to set new main IP
+    set_main_ip() {
+        local new_ip=$1
+        local interface=$(ip addr show | grep -B2 "$new_ip" | head -n1 | awk '{print $2}' | tr -d ':')
+        
+        # Backup current configuration
+        backup_network_config
+        
+        # Remove current default route
+        sudo ip route delete default 2>/dev/null || true
+        
+        # Get gateway for the interface
+        local gateway=$(ip route | grep "$interface" | grep -v 'default' | awk '{print $1}' | head -n1)
+        
+        if [ -z "$gateway" ]; then
+            echo "Error: Could not determine gateway for interface $interface"
+            exit 1
+        fi
+        
+        # Add new default route with the new IP
+        if sudo ip route add default via "$gateway" dev "$interface" src "$new_ip"; then
+            echo "Successfully changed main IP to: $new_ip on interface $interface"
+            echo "New routing table:"
+            ip route show
+        else
+            echo "Error: Failed to set new main IP"
+            exit 1
+        fi
+    }
+
+    # Main script
+    maini21() {
+        # Run initial checks
+        check_requirements
+        check_networking_service
+        
+        # Get all IPv4 addresses
+        readarray -t ips < <(get_ipv4_addresses)
+        
+        # Check if we have multiple IPs
+        if [ ${#ips[@]} -lt 2 ]; then
+            echo "Error: Not enough IPv4 addresses found (minimum 2 required)"
+            echo "Found addresses: ${ips[*]}"
+            exit 1
+        fi
+        
+        # Get current main IP
+        current_ip=$(get_current_main_ip)
+        
+        echo "Current IP addresses:"
+        for ip in "${ips[@]}"; do
+            if [ "$ip" = "$current_ip" ]; then
+                echo "* $ip (current main)"
+            else
+                echo "  $ip"
+            fi
+        done
+        
+        # Find next IP in rotation
+        next_ip=""
+        found_current=false
+        
+        for ip in "${ips[@]}"; do
+            if [ "$found_current" = true ]; then
+                next_ip=$ip
+                break
+            fi
+            if [ "$ip" = "$current_ip" ]; then
+                found_current=true
+            fi
+        done
+        
+        # If we didn't find a next IP (current was last), use first IP
+        if [ -z "$next_ip" ]; then
+            next_ip="${ips[0]}"
+        fi
+        
+        echo "Switching to next IP: $next_ip"
+        
+        # Set the new main IP
+        set_main_ip "$next_ip"
+    }
+
+    # Run script with root privileges check
+    if [ "$EUID" -ne 0 ]; then
+        echo "Please run as root (sudo)"
+        exit 1
+    fi
+
+    maini21
+}
