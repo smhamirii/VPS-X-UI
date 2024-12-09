@@ -426,7 +426,7 @@ certificate_complex(){
 
     # Show confirmation before proceeding
     whiptail --yesno "Ready to proceed with certificate renewal:\n\nDomain: $FULL_DOMAIN\nCurrent IP: $ORIGINAL_IP\nVPS IP: $VPS_IP\n\nContinue?" 15 60
-    [[ $? -ne 0 ]] && exit 0  # User selected No
+    [[ $? -ne 0 ]] && return 0  # User selected No
 
     # Store original IP in a temporary file for safety
     echo "$ORIGINAL_IP" > /tmp/original_ip_backup
@@ -488,16 +488,26 @@ certificate_complex(){
     # Update DNS to final IP
     echo "Updating DNS to final IP: $FINAL_IP"
     update_dns_record "$FULL_DOMAIN" "$FINAL_IP" "$ZONE_ID" "$RECORD_ID" "$CF_API_TOKEN"
+    DNS_UPDATE_STATUS=$?
 
     # Clean up
     rm -f /tmp/original_ip_backup
 
-    # Final status
-    if [ $CERT_STATUS -eq 0 ]; then
-        whiptail --msgbox "Certificate renewal complete!\n\nDomain: $FULL_DOMAIN\nFinal IP: $FINAL_IP" 12 60
+    # Final status - check both certificate and DNS update status
+    if [ $CERT_STATUS -eq 0 ] && [ $DNS_UPDATE_STATUS -eq 0 ]; then
+        whiptail --msgbox "Certificate renewal complete!\nDNS updated successfully!\n\nDomain: $FULL_DOMAIN\nFinal IP: $FINAL_IP" 12 60
     else
-        whiptail --msgbox "Certificate renewal failed!\n\nDomain: $FULL_DOMAIN\nFinal IP: $FINAL_IP" 12 60
+        # Provide more specific error information
+        ERROR_MSG="Operation encountered issues:\n\n"
+        [ $CERT_STATUS -ne 0 ] && ERROR_MSG+="- Certificate renewal failed\n"
+        [ $DNS_UPDATE_STATUS -ne 0 ] && ERROR_MSG+="- DNS update failed\n\n"
+        ERROR_MSG+="Domain: $FULL_DOMAIN\nFinal IP: $FINAL_IP"
+        
+        whiptail --msgbox "$ERROR_MSG" 15 60
     fi
+
+    # Return the overall status
+    [ $CERT_STATUS -eq 0 ] && [ $DNS_UPDATE_STATUS -eq 0 ]
 }
 
 
