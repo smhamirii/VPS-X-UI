@@ -334,7 +334,42 @@ reverse_new(){
 certificate_complex(){
     error_exit() {
         whiptail --msgbox "Error: $1" 10 60
-        return 1
+        return 1  # Changed from return to exit for proper script termination
+    }
+
+    # Function to check if DNS record exists and create if it doesn't
+    check_or_create_dns_record() {
+        local full_domain="$1"
+        local ip="$2"
+        local zone_id="$3"
+        local cf_token="$4"
+
+        # Check if record exists
+        local record_info=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$zone_id/dns_records?name=$full_domain" \
+            -H "Authorization: Bearer $cf_token" \
+            -H "Content-Type: application/json")
+        
+        local record_exists=$(echo "$record_info" | jq -r '.result | length')
+
+        if [ "$record_exists" -eq 0 ]; then
+            # Create new record
+            local create_response=$(curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$zone_id/dns_records" \
+                -H "Authorization: Bearer $cf_token" \
+                -H "Content-Type: application/json" \
+                --data '{"type":"A","name":"'"$full_domain"'","content":"'"$ip"'","ttl":120,"proxied":false}')
+
+            if ! echo "$create_response" | jq -r '.success' | grep -q "true"; then
+                error_exit "Failed to create DNS record"
+            fi
+            
+            # Get the new record ID
+            record_info=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$zone_id/dns_records?name=$full_domain" \
+                -H "Authorization: Bearer $cf_token" \
+                -H "Content-Type: application/json")
+        fi
+
+        # Return record ID and current IP
+        echo "$record_info" | jq -r '.result[0] | .id + " " + .content'
     }
 
     # Function to update DNS record
@@ -355,13 +390,19 @@ certificate_complex(){
         fi
     }
 
+    # Trap Ctrl+C and cleanup
+    trap 'echo "Operation cancelled by user"; exit 1' INT
+
     # Get the current VPS IP
     VPS_IP=$(curl -s https://api.ipify.org)
     [[ -z "$VPS_IP" ]] && error_exit "Failed to retrieve VPS IP address"
 
     # Prompt for required information
     CF_API_TOKEN=$(whiptail --inputbox "Enter your Cloudflare API token:" 10 60 3>&1 1>&2 2>&3)
+    [[ $? -ne 0 ]] && return 1  # User pressed Cancel
+    
     FULL_DOMAIN=$(whiptail --inputbox "Enter your full domain (e.g., subdomain.example.com):" 10 60 3>&1 1>&2 2>&3)
+    [[ $? -ne 0 ]] && return 1  # User pressed Cancel
 
     # Validate inputs
     [[ -z "$CF_API_TOKEN" ]] && error_exit "Cloudflare API token is required"
@@ -378,19 +419,14 @@ certificate_complex(){
 
     [[ -z "$ZONE_ID" || "$ZONE_ID" == "null" ]] && error_exit "Failed to retrieve zone ID"
 
-    # Get record ID and current (original) IP
-    RECORD_INFO=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?name=$FULL_DOMAIN" \
-        -H "Authorization: Bearer $CF_API_TOKEN" \
-        -H "Content-Type: application/json")
-
-    RECORD_ID=$(echo "$RECORD_INFO" | jq -r '.result[0].id')
-    ORIGINAL_IP=$(echo "$RECORD_INFO" | jq -r '.result[0].content')
-
-    [[ -z "$RECORD_ID" || "$RECORD_ID" == "null" ]] && error_exit "Failed to retrieve DNS record"
-    [[ -z "$ORIGINAL_IP" ]] && error_exit "Failed to retrieve original IP"
+    # Check if record exists or create new one
+    RECORD_INFO=$(check_or_create_dns_record "$FULL_DOMAIN" "$VPS_IP" "$ZONE_ID" "$CF_API_TOKEN")
+    RECORD_ID=$(echo "$RECORD_INFO" | cut -d' ' -f1)
+    ORIGINAL_IP=$(echo "$RECORD_INFO" | cut -d' ' -f2)
 
     # Show confirmation before proceeding
-    whiptail --yesno "Ready to proceed with certificate renewal:\n\nDomain: $FULL_DOMAIN\nCurrent IP: $ORIGINAL_IP\nVPS IP: $VPS_IP\n\nContinue?" 15 60 || exit 0
+    whiptail --yesno "Ready to proceed with certificate renewal:\n\nDomain: $FULL_DOMAIN\nCurrent IP: $ORIGINAL_IP\nVPS IP: $VPS_IP\n\nContinue?" 15 60
+    [[ $? -ne 0 ]] && exit 0  # User selected No
 
     # Store original IP in a temporary file for safety
     echo "$ORIGINAL_IP" > /tmp/original_ip_backup
@@ -427,25 +463,27 @@ certificate_complex(){
         "2" "Set custom IP" \
         "3" "Keep current VPS IP ($VPS_IP)" 3>&1 1>&2 2>&3)
 
-    case $IP_CHOICE in
-        1)
-            FINAL_IP=$ORIGINAL_IP
-            ;;
-        2)
-            FINAL_IP=$(whiptail --inputbox "Enter the new IP address:" 10 60 3>&1 1>&2 2>&3)
-            if [[ -z "$FINAL_IP" ]]; then
-                whiptail --msgbox "No IP provided. Using original IP ($ORIGINAL_IP)" 10 60
+    # Handle menu cancel
+    if [ $? -ne 0 ]; then
+        whiptail --msgbox "No selection made. Using original IP ($ORIGINAL_IP)" 10 60
+        FINAL_IP=$ORIGINAL_IP
+    else
+        case $IP_CHOICE in
+            1)
                 FINAL_IP=$ORIGINAL_IP
-            fi
-            ;;
-        3)
-            FINAL_IP=$VPS_IP
-            ;;
-        *)
-            whiptail --msgbox "No selection made. Using original IP ($ORIGINAL_IP)" 10 60
-            FINAL_IP=$ORIGINAL_IP
-            ;;
-    esac
+                ;;
+            2)
+                FINAL_IP=$(whiptail --inputbox "Enter the new IP address:" 10 60 3>&1 1>&2 2>&3)
+                if [[ $? -ne 0 || -z "$FINAL_IP" ]]; then
+                    whiptail --msgbox "No IP provided. Using original IP ($ORIGINAL_IP)" 10 60
+                    FINAL_IP=$ORIGINAL_IP
+                fi
+                ;;
+            3)
+                FINAL_IP=$VPS_IP
+                ;;
+        esac
+    fi
 
     # Update DNS to final IP
     echo "Updating DNS to final IP: $FINAL_IP"
@@ -460,7 +498,6 @@ certificate_complex(){
     else
         whiptail --msgbox "Certificate renewal failed!\n\nDomain: $FULL_DOMAIN\nFinal IP: $FINAL_IP" 12 60
     fi
-
 }
 
 
