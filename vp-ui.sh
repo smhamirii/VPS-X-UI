@@ -1,6 +1,6 @@
 #!/usr/bin/bash
 
-change_main_ip1(){
+changei_main_ip(){
     
     get_ipv4_addresses() {
         ip -4 addr show | grep inet | grep -v '127.0.0.1' | awk '{print $2}' | cut -d'/' -f1
@@ -1472,7 +1472,7 @@ main_program() {
                 virtual_ram        
                 ;;
             "9")
-                change_main_ip1       
+                changei_main_ip       
                 ;;
             "10")
                 certificates
