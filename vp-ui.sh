@@ -1,118 +1,21 @@
 #!/usr/bin/bash
 
-changei_main_ip(){
-    
-    get_ipv4_addresses() {
-        ip -4 addr show | grep inet | grep -v '127.0.0.1' | awk '{print $2}' | cut -d'/' -f1
-    }
-
-    # Function to change the main IP
-    change_main_ip() {
-        local new_ip=$1
-        local interface=$(ip addr show | grep -B2 "$new_ip" | head -n1 | awk '{print $2}' | tr -d ':')
-        
-        echo "Changing main IP to $new_ip on interface $interface"
-        
-        # Remove current default route
-        sudo ip route delete default 2>/dev/null || true
-        
-        # Get gateway for the interface
-        local gateway=$(ip route | grep "$interface" | grep -v 'default' | head -n1 | awk '{print $1}')
-        
-        if [ -z "$gateway" ]; then
-            echo "Error: Could not determine gateway for interface $interface"
-            exit 1
-        fi
-        
-        # Add new default route
-        if ! sudo ip route add default via "$gateway" dev "$interface" src "$new_ip"; then
-            echo "Error: Failed to set new default route"
-            exit 1
-        fi
-        
-        echo "Successfully changed main IP to: $new_ip"
-        echo "New routing table:"
-        ip route show
-    }
-
-    # Get current main IP
-    get_current_main_ip() {
-        ip route get 1.1.1.1 | grep -oP 'src \K\S+'
-    }
-
-    # Main script logic
-    echo "Getting IPv4 addresses..."
-    readarray -t ips < <(get_ipv4_addresses)
-
-    # Check if we have enough IPs
-    if [ ${#ips[@]} -lt 2 ]; then
-        echo "Error: Need at least 2 IPv4 addresses. Found: ${ips[*]}"
-        exit 1
-    fi
-
-    # Get current main IP
-    current_ip=$(get_current_main_ip)
-    echo "Current main IP: $current_ip"
-
-    # Display all IPs
-    echo "Available IPs:"
-    for ip in "${ips[@]}"; do
-        if [ "$ip" = "$current_ip" ]; then
-            echo "* $ip (current)"
-        else
-            echo "  $ip"
-        fi
-    done
-
-    # Find next IP
-    next_ip=""
-    found_current=false
-
-    for ip in "${ips[@]}"; do
-        if [ "$found_current" = true ]; then
-            next_ip=$ip
-            break
-        fi
-        if [ "$ip" = "$current_ip" ]; then
-            found_current=true
-        fi
-    done
-
-    # If we're at the last IP, wrap around to the first
-    if [ -z "$next_ip" ]; then
-        next_ip="${ips[0]}"
-    fi
-
-    echo "Switching to: $next_ip"
-    change_main_ip "$next_ip"
-}
-
 
 server_upgrade(){
+    up1(){
+        sudo apt upgrade -y 
+    }
 
-    # setup condition
-    upgrade_choose=$(whiptail --title "Choose Server" --menu "Choose server location:" 15 60 5 \
-        "1" "Upgrade" \
-        "2" "BBR Setup" \
-        "3" "DNS Update" \
-        "4" "Firewall Disable" \
-        "5" "Exit" 3>&1 1>&2 2>&3)
-
-    if [[ "$upgrade_choose" == "1" ]]; then
-
-        sudo apt upgrade -y  
-
-    elif [[ "$upgrade_choose" == "2" ]]; then
-
+    up2(){
         # Enable BBR by adding it to sysctl configuration
         echo "net.core.default_qdisc=fq" | sudo tee -a /etc/sysctl.conf
         echo "net.ipv4.tcp_congestion_control=bbr" | sudo tee -a /etc/sysctl.conf
 
         # Apply the changes immediately
         sudo sysctl -p
-        
-    elif [[ "$upgrade_choose" == "3" ]]; then
+    }
 
+    up3(){
         # Choose server location
         server_location=$(whiptail --title "Choose Server" --menu "Choose server location:" 15 60 2 \
             "1" "Iran" \
@@ -132,11 +35,40 @@ server_upgrade(){
             echo "nameserver 1.0.0.1" | sudo tee -a /etc/resolv.conf
             whiptail --msgbox "DNS Updated" 8 45
 
-        fi    
-    elif [[ "$upgrade_choose" == "4" ]]; then
+        fi            
+    }
 
+    up4(){
         sudo ufw disable
-    
+    }
+
+    # setup condition
+    upgrade_choose=$(whiptail --title "Choose Server" --menu "Choose server location:" 15 60 6 \
+        "1" "Full Upgrade(one click)" \
+        "2" "Server Upgrade" \
+        "3" "BBR Setup" \
+        "4" "DNS Update" \
+        "5" "Firewall Disable" \
+        "6" "Exit" 3>&1 1>&2 2>&3)
+
+    if [[ "$upgrade_choose" == "1" ]]; then
+        up1 && \
+        up2 && \
+        up3 && \
+        up4
+
+    elif [[ "$upgrade_choose" == "2" ]]; then
+        up1
+
+    elif [[ "$upgrade_choose" == "3" ]]; then
+        up2
+
+    elif [[ "$upgrade_choose" == "4" ]]; then
+        up3
+
+    elif [[ "$upgrade_choose" == "5" ]]; then
+        up4
+
     fi
         
     # clear screen
@@ -410,11 +342,41 @@ EOL
 
 
 reverse_new(){
-    if [ -f "RTT.py" ]; then
-        rm RTT.py
-    fi
-    wget https://raw.githubusercontent.com/smhamirii/VPS-X-UI/refs/heads/main/RTT.py
-    python3 RTT.py
+    reversei_menu=$(whiptail --title "Reverse Tunnel" --menu "Reverse Tunnel with python" 15 60 3 \
+        "1" "PYTHON 3 INSTALL" \
+        "2" "Without Update" \
+        "3" "Exit" 3>&1 1>&2 2>&3)
+
+
+    if [[ "$reversei_menu" == "1" ]]; then
+        # insatll python
+        apt install python3 -y && sudo apt install python3-pip &&  pip install colorama && pip install netifaces && apt install curl -y
+       
+        # insatll colorama
+        pip3 install colorama
+       
+        # insatll pip
+        sudo apt-get install python-pip -y  &&  apt-get install python3 -y && alias python=python3 && python -m pip install colorama && python -m pip install netifaces
+       
+        # apt update
+        sudo apt update -y && sudo apt install -y python3 python3-pip curl && pip3 install --upgrade pip && pip3 install netifaces colorama requests
+
+        # installing tunnel
+        if [ -f "RTT.py" ]; then
+            rm RTT.py
+        fi
+        wget https://raw.githubusercontent.com/smhamirii/VPS-X-UI/refs/heads/main/RTT.py
+        python3 RTT.py
+
+    elif [[ "$reversei_menu" == "2" ]]; then
+        # installing tunnel
+        if [ -f "RTT.py" ]; then
+            rm RTT.py
+        fi
+        wget https://raw.githubusercontent.com/smhamirii/VPS-X-UI/refs/heads/main/RTT.py
+        python3 RTT.py
+
+    fi  
 }
 
 
@@ -1131,6 +1093,7 @@ auto_ip_change(){
         fi
     }
 
+
     # Save configuration to a config file
     save_configuration() {
         # Create config file
@@ -1147,17 +1110,41 @@ EOF
         sudo chmod 600 "$CONFIG_PATH"
     }
 
+    # Check if subdomain exists
+    check_subdomain_exists() {
+        local RECORD_RESPONSE=$(curl -s -X GET \
+            "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?type=A&name=$SUBDOMAIN.$DOMAIN" \
+            -H "Authorization: Bearer $CF_API_KEY" \
+            -H "Content-Type: application/json")
+        
+        local RECORD_COUNT=$(echo "$RECORD_RESPONSE" | jq '.result | length')
+        
+        if [ "$RECORD_COUNT" -eq 0 ]; then
+            whiptail --msgbox "Error: Subdomain $SUBDOMAIN.$DOMAIN does not exist in Cloudflare. Please create it first." 10 60
+            return 1
+        fi
+        return 0
+    }
+
     # Collect configuration from user
     get_configuration() {
         # Cloudflare API Configuration
         CF_API_KEY=$(whiptail --inputbox "Enter Cloudflare API Key" 10 60 3>&1 1>&2 2>&3) || return 1    
         FULL_DOMAIN=$(whiptail --inputbox "Enter your full domain (e.g., subdomain.example.com):" 10 60 3>&1 1>&2 2>&3) || return 1
         
-        # Extract domain (everything after the first dot)
+        # Extract domain and subdomain
         DOMAIN=$(echo "$FULL_DOMAIN" | sed -E 's/^[^.]+\.//')
-
-        # Extract subdomain (everything before the last two dots)
         SUBDOMAIN=$(echo "$FULL_DOMAIN" | sed -E 's/^([^.]+).+$/\1/')
+        
+        # Find zone ID first
+        if ! find_zone_id; then
+            return 1
+        fi
+
+        # Check if subdomain exists
+        if ! check_subdomain_exists; then
+            return 1
+        }
         
         # Server IPs
         KHAREJ_SERVER_IP=$(curl -s https://api.ipify.org)
@@ -1166,21 +1153,6 @@ EOF
         # Telegram Configuration
         TELEGRAM_BOT_TOKEN=$(whiptail --inputbox "Enter Telegram Bot Token" 10 60 3>&1 1>&2 2>&3) || return 1
         TELEGRAM_CHAT_IDS=$(whiptail --inputbox "Enter Telegram Chat IDs (comma-separated for multiple users)" 10 60 3>&1 1>&2 2>&3) || return 1
-    }
-
-    # Automatically find Zone ID
-    find_zone_id() {
-        ZONE_RESPONSE=$(curl -s -X GET \
-            "https://api.cloudflare.com/client/v4/zones?name=$DOMAIN" \
-            -H "Authorization: Bearer $CF_API_KEY" \
-            -H "Content-Type: application/json")
-        
-        ZONE_ID=$(echo "$ZONE_RESPONSE" | jq -r '.result[0].id')
-        
-        if [ -z "$ZONE_ID" ] || [ "$ZONE_ID" == "null" ]; then
-            whiptail --msgbox "Failed to retrieve Zone ID. Check your API key and domain." 10 60
-            return 1
-        fi
     }
 
     # Create the monitoring script
@@ -1193,8 +1165,6 @@ CONFIG_PATH="/etc/cloudflare-ddns.conf"
 source "$CONFIG_PATH"
 
 CURRENT_SERVER_IP=""
-IRAN_SERVER_LAST_STATE="unreachable"
-LAST_SWITCH_TIMESTAMP=0
 
 send_telegram_notification() {
     local message="$1"
@@ -1213,51 +1183,39 @@ update_dns_record() {
     local TARGET_IP=$1
     local SWITCH_REASON=$2
     
+    # Get current DNS record
     RECORD_RESPONSE=$(curl -s -X GET \
         "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?type=A&name=$SUBDOMAIN.$DOMAIN" \
         -H "Authorization: Bearer $CF_API_KEY" \
         -H "Content-Type: application/json")
     
     RECORD_ID=$(echo "$RECORD_RESPONSE" | jq -r '.result[0].id')
+    CURRENT_IP=$(echo "$RECORD_RESPONSE" | jq -r '.result[0].content')
     
-    UPDATE_RESPONSE=$(curl -s -X PUT \
-        "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$RECORD_ID" \
-        -H "Authorization: Bearer $CF_API_KEY" \
-        -H "Content-Type: application/json" \
-        --data "{\"type\":\"A\",\"name\":\"$SUBDOMAIN\",\"content\":\"$TARGET_IP\",\"ttl\":1,\"proxied\":false}")
-    
-    if echo "$UPDATE_RESPONSE" | jq -e '.success' > /dev/null; then
-        NOTIFICATION_MSG="🔄 DNS Update Alert\n\nDomain: $SUBDOMAIN.$DOMAIN\nNew IP: $TARGET_IP\nReason: $SWITCH_REASON\nTimestamp: $(date '+%Y-%m-%d %H:%M:%S')"
-        send_telegram_notification "$NOTIFICATION_MSG"
-        echo "DNS updated to $TARGET_IP" | systemd-cat -t cloudflare-ddns -p info
-        CURRENT_SERVER_IP="$TARGET_IP"
-        LAST_SWITCH_TIMESTAMP=$(date +%s)
-    else
-        NOTIFICATION_MSG="⚠️ DNS Update Failed\n\nDomain: $SUBDOMAIN.$DOMAIN\nAttempted IP: $TARGET_IP\nTimestamp: $(date '+%Y-%m-%d %H:%M:%S')"
-        send_telegram_notification "$NOTIFICATION_MSG"
-        echo "DNS update failed" | systemd-cat -t cloudflare-ddns -p err
+    # Only update if IP is different
+    if [ "$CURRENT_IP" != "$TARGET_IP" ]; then
+        UPDATE_RESPONSE=$(curl -s -X PUT \
+            "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$RECORD_ID" \
+            -H "Authorization: Bearer $CF_API_KEY" \
+            -H "Content-Type: application/json" \
+            --data "{\"type\":\"A\",\"name\":\"$SUBDOMAIN\",\"content\":\"$TARGET_IP\",\"ttl\":1,\"proxied\":false}")
+        
+        if echo "$UPDATE_RESPONSE" | jq -e '.success' > /dev/null; then
+            NOTIFICATION_MSG="🔄 DNS Update Alert\n\nDomain: $SUBDOMAIN.$DOMAIN\nOld IP: $CURRENT_IP\nNew IP: $TARGET_IP\nReason: $SWITCH_REASON\nTimestamp: $(date '+%Y-%m-%d %H:%M:%S')"
+            send_telegram_notification "$NOTIFICATION_MSG"
+            echo "DNS updated from $CURRENT_IP to $TARGET_IP" | systemd-cat -t cloudflare-ddns -p info
+            CURRENT_SERVER_IP="$TARGET_IP"
+        else
+            echo "DNS update failed" | systemd-cat -t cloudflare-ddns -p err
+        fi
     fi
 }
 
-SWITCH_COOLDOWN=300
-
 while true; do
-    CURRENT_TIME=$(date +%s)
-    ELAPSED_SINCE_LAST_SWITCH=$((CURRENT_TIME - LAST_SWITCH_TIMESTAMP))
-
     if ping -c 3 "$IRAN_SERVER_IP" > /dev/null 2>&1; then
-        if [ "$IRAN_SERVER_LAST_STATE" == "unreachable" ] || 
-           [ "$CURRENT_SERVER_IP" != "$IRAN_SERVER_IP" ] || 
-           [ "$ELAPSED_SINCE_LAST_SWITCH" -ge "$SWITCH_COOLDOWN" ]; then
-            update_dns_record "$IRAN_SERVER_IP" "Iran server is now reachable"
-            IRAN_SERVER_LAST_STATE="reachable"
-        fi
+        update_dns_record "$IRAN_SERVER_IP" "Iran server is now reachable"
     else
-        if [ "$CURRENT_SERVER_IP" == "$IRAN_SERVER_IP" ] || 
-           [ "$ELAPSED_SINCE_LAST_SWITCH" -ge "$SWITCH_COOLDOWN" ]; then
-            update_dns_record "$KHAREJ_SERVER_IP" "Iran server is unreachable"
-            IRAN_SERVER_LAST_STATE="unreachable"
-        fi
+        update_dns_record "$KHAREJ_SERVER_IP" "Iran server is unreachable"
     fi
     
     sleep 300
@@ -1265,6 +1223,7 @@ done
 EOF
         sudo chmod +x "$SCRIPT_PATH"
     }
+
 
     # Create systemd service file
     create_service_file() {
@@ -1472,7 +1431,7 @@ main_program() {
                 virtual_ram        
                 ;;
             "9")
-                changei_main_ip       
+                change_main_ip       
                 ;;
             "10")
                 certificates
