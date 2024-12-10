@@ -1111,76 +1111,63 @@ EOF
     }
 
     # Find zone ID# Find zone ID
-    find_zone_id() {
-        local ZONE_RESPONSE
-        ZONE_RESPONSE=$(curl -s -X GET \
-            "https://api.cloudflare.com/client/v4/zones?name=$DOMAIN" \
-            -H "Authorization: Bearer $CF_API_KEY" \
-            -H "Content-Type: application/json")
-        
-        if ! echo "$ZONE_RESPONSE" | jq -e '.success' > /dev/null; then
-            whiptail --msgbox "Failed to query Cloudflare API. Please check your API key." 10 60
-            return 1
-        fi
-        
-        ZONE_ID=$(echo "$ZONE_RESPONSE" | jq -r '.result[0].id')
-        
-        if [ -z "$ZONE_ID" ] || [ "$ZONE_ID" = "null" ]; then
-            whiptail --msgbox "Failed to find Zone ID for domain $DOMAIN. Please check if the domain exists in your Cloudflare account." 10 60
-            return 1
-        fi
-        
-        return 0
-    }
+# Find zone ID function
+find_zone_id() {
+    ZONE_RESPONSE=$(curl -s -X GET \
+        "https://api.cloudflare.com/client/v4/zones?name=$DOMAIN" \
+        -H "Authorization: Bearer $CF_API_KEY" \
+        -H "Content-Type: application/json")
+    
+    ZONE_ID=$(echo "$ZONE_RESPONSE" | jq -r '.result[0].id')
+    
+    if [ "$ZONE_ID" = "null" ] || [ -z "$ZONE_ID" ]; then
+        whiptail --msgbox "Failed to find Zone ID for domain $DOMAIN. Please check if the domain exists in your Cloudflare account." 10 60
+        return 1
+    fi
+    return 0
+}
+
+# Check if subdomain exists function
+check_subdomain_exists() {
+    RECORD_RESPONSE=$(curl -s -X GET \
+        "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?name=$SUBDOMAIN.$DOMAIN" \
+        -H "Authorization: Bearer $CF_API_KEY" \
+        -H "Content-Type: application/json")
+    
+    RECORD_COUNT=$(echo "$RECORD_RESPONSE" | jq '.result | length')
+    
+    if [ "$RECORD_COUNT" = "null" ] || [ "$RECORD_COUNT" -eq 0 ]; then
+        whiptail --msgbox "Error: Subdomain $SUBDOMAIN.$DOMAIN does not exist in Cloudflare. Please create it first." 10 60
+        return 1
+    fi
+    return 0
+}
+
+# Get configuration function
+get_configuration() {
+    # Cloudflare API Configuration
+    CF_API_KEY=$(whiptail --inputbox "Enter Cloudflare API Key" 10 60 3>&1 1>&2 2>&3) || return 1    
+    FULL_DOMAIN=$(whiptail --inputbox "Enter your full domain (e.g., subdomain.example.com):" 10 60 3>&1 1>&2 2>&3) || return 1
+    
+    # Extract domain and subdomain
+    DOMAIN=$(echo "$FULL_DOMAIN" | sed -E 's/^[^.]+\.//')
+    SUBDOMAIN=$(echo "$FULL_DOMAIN" | sed -E 's/^([^.]+).+$/\1/')
+    
+    # Find zone ID first
+    find_zone_id || return 1
 
     # Check if subdomain exists
-    check_subdomain_exists() {
-        local RECORD_RESPONSE
-        RECORD_RESPONSE=$(curl -s -X GET \
-            "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?name=$SUBDOMAIN.$DOMAIN" \
-            -H "Authorization: Bearer $CF_API_KEY" \
-            -H "Content-Type: application/json")
-        
-        if ! echo "$RECORD_RESPONSE" | jq -e '.success' > /dev/null; then
-            whiptail --msgbox "Failed to query Cloudflare API for DNS records." 10 60
-            return 1
-        fi
-        
-        local RECORD_COUNT
-        RECORD_COUNT=$(echo "$RECORD_RESPONSE" | jq '.result | length')
-        
-        if [ "$RECORD_COUNT" -eq 0 ]; then
-            whiptail --msgbox "Error: Subdomain $SUBDOMAIN.$DOMAIN does not exist in Cloudflare. Please create it first." 10 60
-            return 1
-        fi
-        
-        return 0
-    }
+    check_subdomain_exists || return 1
+    
+    # Server IPs
+    KHAREJ_SERVER_IP=$(curl -s https://api.ipify.org)
+    IRAN_SERVER_IP=$(whiptail --inputbox "Enter Iran Server IP" 10 60 3>&1 1>&2 2>&3) || return 1
 
-    # Collect configuration from user
-    get_configuration() {
-        # Cloudflare API Configuration
-        CF_API_KEY=$(whiptail --inputbox "Enter Cloudflare API Key" 10 60 3>&1 1>&2 2>&3) || return 1    
-        FULL_DOMAIN=$(whiptail --inputbox "Enter your full domain (e.g., subdomain.example.com):" 10 60 3>&1 1>&2 2>&3) || return 1
-        
-        # Extract domain and subdomain
-        DOMAIN=$(echo "$FULL_DOMAIN" | sed -E 's/^[^.]+\.//')
-        SUBDOMAIN=$(echo "$FULL_DOMAIN" | sed -E 's/^([^.]+).+$/\1/')
-        
-        # Find zone ID first
-        find_zone_id
-
-        # Check if subdomain exists
-        check_subdomain_exists
-
-        # Server IPs
-        KHAREJ_SERVER_IP=$(curl -s https://api.ipify.org)
-        IRAN_SERVER_IP=$(whiptail --inputbox "Enter Iran Server IP" 10 60 3>&1 1>&2 2>&3) || return 1
-
-        # Telegram Configuration
-        TELEGRAM_BOT_TOKEN=$(whiptail --inputbox "Enter Telegram Bot Token" 10 60 3>&1 1>&2 2>&3) || return 1
-        TELEGRAM_CHAT_IDS=$(whiptail --inputbox "Enter Telegram Chat IDs (comma-separated for multiple users)" 10 60 3>&1 1>&2 2>&3) || return 1
-    }
+    # Telegram Configuration
+    TELEGRAM_BOT_TOKEN=$(whiptail --inputbox "Enter Telegram Bot Token" 10 60 3>&1 1>&2 2>&3) || return 1
+    TELEGRAM_CHAT_IDS=$(whiptail --inputbox "Enter Telegram Chat IDs (comma-separated for multiple users)" 10 60 3>&1 1>&2 2>&3) || return 1
+    return 0
+}
 
     # Create the monitoring script
     create_monitor_script() {
