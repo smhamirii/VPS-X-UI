@@ -1110,21 +1110,53 @@ EOF
         sudo chmod 600 "$CONFIG_PATH"
     }
 
-    # Check if subdomain exists
-    check_subdomain_exists() {
-        local RECORD_RESPONSE=$(curl -s -X GET \
-            "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?type=A&name=$SUBDOMAIN.$DOMAIN" \
+    # Find zone ID
+    find_zone_id() {
+        local ZONE_RESPONSE
+        ZONE_RESPONSE=$(curl -s -X GET \
+            "https://api.cloudflare.com/client/v4/zones?name=$DOMAIN" \
             -H "Authorization: Bearer $CF_API_KEY" \
             -H "Content-Type: application/json")
         
-        local RECORD_COUNT=$(echo "$RECORD_RESPONSE" | jq '.result | length')
+        if ! echo "$ZONE_RESPONSE" | jq -e '.success' > /dev/null; then
+            whiptail --msgbox "Failed to query Cloudflare API. Please check your API key." 10 60
+            return 1
+        fi
+        
+        ZONE_ID=$(echo "$ZONE_RESPONSE" | jq -r '.result[0].id')
+        
+        if [ -z "$ZONE_ID" ] || [ "$ZONE_ID" = "null" ]; then
+            whiptail --msgbox "Failed to find Zone ID for domain $DOMAIN. Please check if the domain exists in your Cloudflare account." 10 60
+            return 1
+        fi
+        
+        return 0
+    }
+
+    # Check if subdomain exists
+    check_subdomain_exists() {
+        local RECORD_RESPONSE
+        RECORD_RESPONSE=$(curl -s -X GET \
+            "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?name=$SUBDOMAIN.$DOMAIN" \
+            -H "Authorization: Bearer $CF_API_KEY" \
+            -H "Content-Type: application/json")
+        
+        if ! echo "$RECORD_RESPONSE" | jq -e '.success' > /dev/null; then
+            whiptail --msgbox "Failed to query Cloudflare API for DNS records." 10 60
+            return 1
+        }
+        
+        local RECORD_COUNT
+        RECORD_COUNT=$(echo "$RECORD_RESPONSE" | jq '.result | length')
         
         if [ "$RECORD_COUNT" -eq 0 ]; then
             whiptail --msgbox "Error: Subdomain $SUBDOMAIN.$DOMAIN does not exist in Cloudflare. Please create it first." 10 60
             return 1
         fi
+        
         return 0
     }
+
 
     # Collect configuration from user
     get_configuration() {
@@ -1141,7 +1173,7 @@ EOF
 
         # Check if subdomain exists
         check_subdomain_exists || return 1
-        
+
         # Server IPs
         KHAREJ_SERVER_IP=$(curl -s https://api.ipify.org)
         IRAN_SERVER_IP=$(whiptail --inputbox "Enter Iran Server IP" 10 60 3>&1 1>&2 2>&3) || return 1
