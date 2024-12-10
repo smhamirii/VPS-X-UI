@@ -1215,7 +1215,7 @@ update_dns_record() {
             --data "{\"type\":\"A\",\"name\":\"$SUBDOMAIN\",\"content\":\"$TARGET_IP\",\"ttl\":1,\"proxied\":false}")
         
         if echo "$UPDATE_RESPONSE" | jq -e '.success' > /dev/null; then
-            NOTIFICATION_MSG="🔄 DNS Update Alert\n\nDomain: $SUBDOMAIN.$DOMAIN\nOld IP: $CURRENT_IP\nNew IP: $TARGET_IP\nReason: $SWITCH_REASON\nTimestamp: $(date '+%Y-%m-%d %H:%M:%S')"
+            NOTIFICATION_MSG="🔄 DNS Update Alert || Domain: $SUBDOMAIN.$DOMAIN || Old IP: $CURRENT_IP || New IP: $TARGET_IP || Reason: $SWITCH_REASON || Timestamp: $(date '+%Y-%m-%d %H:%M:%S')"
             send_telegram_notification "$NOTIFICATION_MSG"
             echo "DNS updated from $CURRENT_IP to $TARGET_IP" | systemd-cat -t cloudflare-ddns -p info
             CURRENT_SERVER_IP="$TARGET_IP"
