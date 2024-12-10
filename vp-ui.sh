@@ -1136,16 +1136,7 @@ EOF
         DOMAIN=$(echo "$FULL_DOMAIN" | sed -E 's/^[^.]+\.//')
         SUBDOMAIN=$(echo "$FULL_DOMAIN" | sed -E 's/^([^.]+).+$/\1/')
         
-        # Find zone ID first
-        if ! find_zone_id; then
-            return 1
-        fi
 
-        # Check if subdomain exists
-        if ! check_subdomain_exists; then
-            return 1
-        fi
-        
         # Server IPs
         KHAREJ_SERVER_IP=$(curl -s https://api.ipify.org)
         IRAN_SERVER_IP=$(whiptail --inputbox "Enter Iran Server IP" 10 60 3>&1 1>&2 2>&3) || return 1
