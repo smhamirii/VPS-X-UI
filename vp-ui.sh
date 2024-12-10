@@ -1052,9 +1052,6 @@ subdomains(){
 
 
 auto_ip_change(){
-    # Enable debug mode
-    set -x
-    exec 1> >(logger -s -t $(basename $0)) 2>&1
 
     # Script configuration and paths
     SCRIPT_NAME="cloudflare-ddns"
