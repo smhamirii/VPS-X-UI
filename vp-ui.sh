@@ -1110,7 +1110,7 @@ EOF
         sudo chmod 600 "$CONFIG_PATH"
     }
 
-    # Find zone ID
+    # Find zone ID# Find zone ID
     find_zone_id() {
         local ZONE_RESPONSE
         ZONE_RESPONSE=$(curl -s -X GET \
@@ -1130,6 +1130,7 @@ EOF
             return 1
         fi
         
+        return 0
     }
 
     # Check if subdomain exists
@@ -1153,8 +1154,8 @@ EOF
             return 1
         fi
         
+        return 0
     }
-
 
     # Collect configuration from user
     get_configuration() {
