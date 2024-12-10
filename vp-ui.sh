@@ -1130,7 +1130,6 @@ EOF
             return 1
         fi
         
-        return 0
     }
 
     # Check if subdomain exists
@@ -1144,7 +1143,7 @@ EOF
         if ! echo "$RECORD_RESPONSE" | jq -e '.success' > /dev/null; then
             whiptail --msgbox "Failed to query Cloudflare API for DNS records." 10 60
             return 1
-        }
+        fi
         
         local RECORD_COUNT
         RECORD_COUNT=$(echo "$RECORD_RESPONSE" | jq '.result | length')
@@ -1154,7 +1153,6 @@ EOF
             return 1
         fi
         
-        return 0
     }
 
 
