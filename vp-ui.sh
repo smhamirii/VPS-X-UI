@@ -1144,7 +1144,7 @@ EOF
         # Check if subdomain exists
         if ! check_subdomain_exists; then
             return 1
-        }
+        fi
         
         # Server IPs
         KHAREJ_SERVER_IP=$(curl -s https://api.ipify.org)
