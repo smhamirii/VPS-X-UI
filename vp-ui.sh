@@ -1167,10 +1167,10 @@ EOF
         SUBDOMAIN=$(echo "$FULL_DOMAIN" | sed -E 's/^([^.]+).+$/\1/')
         
         # Find zone ID first
-        find_zone_id || return 1
+        find_zone_id
 
         # Check if subdomain exists
-        check_subdomain_exists || return 1
+        check_subdomain_exists
 
         # Server IPs
         KHAREJ_SERVER_IP=$(curl -s https://api.ipify.org)
