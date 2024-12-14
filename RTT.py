@@ -144,7 +144,7 @@ def restartfunctions():
     os.system("clear")
     print("\033[92m ^ ^\033[0m")
     print("\033[92m(\033[91mO,O\033[92m)\033[0m")
-    print("\033[92m(   ) \033[92mBackhaul\033[96m TCPMux\033[93m Single Menu\033[0m")
+    print("\033[92m(   ) \033[92mBackhaul\033[96m TCPMux\033[93m Reset Menu\033[0m")
     print('\033[92m "-"\033[93m══════════════════════════════════\033[0m')
     print("\033[93m╭───────────────────────────────────────╮\033[0m")
     print("\033[93mChoose what to do:\033[0m")
@@ -156,7 +156,7 @@ def restartfunctions():
     if choice == "1":
         restart_service_server()
         clear()
-        
+
     elif choice == "2":
         restart_service_client()
         clear()
