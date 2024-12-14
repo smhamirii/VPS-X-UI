@@ -155,10 +155,12 @@ def restartfunctions():
     choice = input("\033[38;5;205mEnter your choice Please: \033[0m")
     if choice == "1":
         restart_service_server()
-          
+        clear()
+        
     elif choice == "2":
         restart_service_client()
-            
+        clear()
+
     elif choice == "0":
         clear()
         backhaul_menu()
