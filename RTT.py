@@ -108,6 +108,7 @@ def backhaul_menu():
         print("2  \033[93mSingle\033[0m")
         print("3  \033[93mEdit Backhaul\033[0m")
         print("4  \033[91mUninstall\033[0m")
+        print("5  \033[91mRestart\033[0m")     
         print("0. \033[94mExit\033[0m")
         print("\033[93m╰───────────────────────────────────────╯\033[0m")
 
@@ -121,6 +122,8 @@ def backhaul_menu():
                 backhaul_edit_tcpmuxsingle()
             elif choice == "4":
                 backhaul_uninstall_single()
+            elif choice == "5":
+                restartfunctions()
             elif choice == "0":  
                 print("Exiting...")
                 sys.exit()
@@ -134,7 +137,35 @@ def backhaul_menu():
 
 def display_error(message):
     print("\u2718 Error: " + message)
-    
+
+
+# restart Tunnel
+def restartfunctions():
+    os.system("clear")
+    print("\033[92m ^ ^\033[0m")
+    print("\033[92m(\033[91mO,O\033[92m)\033[0m")
+    print("\033[92m(   ) \033[92mBackhaul\033[96m TCPMux\033[93m Single Menu\033[0m")
+    print('\033[92m "-"\033[93m══════════════════════════════════\033[0m')
+    print("\033[93m╭───────────────────────────────────────╮\033[0m")
+    print("\033[93mChoose what to do:\033[0m")
+    print("1  \033[93mIRAN Server\033[0m")
+    print("2  \033[92mKharej Client\033[0m")
+    print("0. \033[94mback to the previous menu\033[0m")
+    print("\033[93m╰───────────────────────────────────────╯\033[0m")
+    choice = input("\033[38;5;205mEnter your choice Please: \033[0m")
+    if choice == "1":
+        restart_service_server()
+          
+    elif choice == "2":
+        restart_service_client()
+            
+    elif choice == "0":
+        clear()
+        backhaul_menu()
+
+    else:
+        print("Invalid choice.")
+
 
 # Install Tunnel
 def backhaul_tcpmux_single():
