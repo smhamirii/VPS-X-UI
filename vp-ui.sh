@@ -1051,6 +1051,7 @@ subdomains(){
 }
 
 
+# Function to manage Cloudflare DDNS and server switching
 auto_ip_change() {
     # Script configuration and paths
     SCRIPT_NAME="cloudflare-ddns"
@@ -1068,7 +1069,7 @@ auto_ip_change() {
             if ! dpkg -s "$pkg" >/dev/null 2>&1; then
                 if ! whiptail --title "Dependencies Missing" --yesno "Package $pkg is not installed. Install now?" 10 60; then
                     whiptail --msgbox "Cannot proceed without required packages." 10 60
-                    return 1
+                    exit 1
                 fi
                 sudo apt-get update
                 sudo apt-get install -y "$pkg"
@@ -1186,6 +1187,8 @@ CONFIG_PATH="/etc/cloudflare-ddns.conf"
 source "$CONFIG_PATH"
 
 CURRENT_SERVER_IP=""
+FAILURE_COUNT=0
+LAST_FAILURE_TIME=0
 
 send_telegram_notification() {
     local message="$1"
@@ -1241,12 +1244,13 @@ update_dns_record() {
             --data "{\"type\":\"A\",\"name\":\"$SUBDOMAIN\",\"content\":\"$TARGET_IP\",\"ttl\":1,\"proxied\":false}")
         
         if echo "$UPDATE_RESPONSE" | jq -e '.success' > /dev/null; then
-            NOTIFICATION_MSG="🔄 DNS Update Alert || Domain: $SUBDOMAIN.$DOMAIN || Old IP: $CURRENT_IP || New IP: $TARGET_IP || Reason: $SWITCH_REASON || Timestamp: $(date '+%Y-%m-%d %H:%M:%S')"
+            NOTIFICATION_MSG="🔄 DNS Update Alert || Domain: $SUBDOMAIN.$DOMAIN || Old IP: $CURRENT_IP || New IP: $TARGET_IP || Reason: $SWITCH_REASON || Timestamp: $(TZ='Asia/Tehran' date '+%Y-%m-%d %H:%M:%S')"
             send_telegram_notification "$NOTIFICATION_MSG"
             echo "DNS updated from $CURRENT_IP to $TARGET_IP" | systemd-cat -t cloudflare-ddns -p info
             CURRENT_SERVER_IP="$TARGET_IP"
         else
-            echo "DNS update failed" | systemd-cat -t cloudflare-ddns -p err
+            echo "DNS update failed: $UPDATE_RESPONSE" | systemd-cat -t cloudflare-ddns -p err
+            send_telegram_notification "🚨 DNS update failed for $SUBDOMAIN.$DOMAIN: Check Cloudflare settings at $(TZ='Asia/Tehran' date '+%Y-%m-%d %H:%M:%S')"
         fi
     fi
 }
@@ -1279,34 +1283,42 @@ check_server_status() {
     [ "$success" = true ]
 }
 
-check_v2ray_status() {
-    if ! systemctl is-active v2ray > /dev/null 2>&1; then
-        echo "V2Ray service is down, restarting..." | systemd-cat -t cloudflare-ddns -p warning
-        systemctl restart v2ray
-        sleep 10
-        if systemctl is-active v2ray > /dev/null 2>&1; then
-            send_telegram_notification "🚨 V2Ray restarted on $(hostname) at $(date '+%Y-%m-%d %H:%M:%S')"
-        else
-            send_telegram_notification "🚨 V2Ray restart failed on $(hostname) at $(date '+%Y-%m-%d %H:%M:%S')"
-            return 1
-        fi
-    fi
-    return 0
-}
-
 check_internet_connectivity() {
-    if ! ping -c 2 8.8.8.8 > /dev/null 2>&1; then
-        echo "Internet connectivity lost, attempting to reset..." | systemd-cat -t cloudflare-ddns -p warning
-        nmcli networking off && nmcli networking on
-        sleep 10
-        if ping -c 2 8.8.8.8 > /dev/null 2>&1; then
-            send_telegram_notification "🌐 Internet restored on $(hostname) at $(date '+%Y-%m-%d %H:%M:%S')"
-        else
-            send_telegram_notification "🌐 Internet restoration failed on $(hostname) at $(date '+%Y-%m-%d %H:%M:%S')"
-            return 1
-        fi
+    if ping -c 2 8.8.8.8 > /dev/null 2>&1; then
+        FAILURE_COUNT=0
+        LAST_FAILURE_TIME=0
+        return 0
     fi
-    return 0
+
+    echo "Internet connectivity lost" | systemd-cat -t cloudflare-ddns -p warning
+    ((FAILURE_COUNT++))
+    
+    if [ $FAILURE_COUNT -eq 1 ]; then
+        LAST_FAILURE_TIME=$(date +%s)
+    fi
+
+    CURRENT_TIME=$(date +%s)
+    TIME_DIFF=$((CURRENT_TIME - LAST_FAILURE_TIME))
+
+    if [ $FAILURE_COUNT -ge 3 ] && [ $TIME_DIFF -ge 900 ]; then
+        send_telegram_notification "🌐 Internet down for 15+ minutes on $(hostname), rebooting at $(TZ='Asia/Tehran' date '+%Y-%m-%d %H:%M:%S')"
+        echo "Internet down for 15+ minutes, rebooting..." | systemd-cat -t cloudflare-ddns -p err
+        /sbin/reboot
+        return 1
+    fi
+
+    # Try resetting network
+    nmcli networking off && nmcli networking on
+    sleep 10
+    if ping -c 2 8.8.8.8 > /dev/null 2>&1; then
+        send_telegram_notification "🌐 Internet restored on $(hostname) at $(TZ='Asia/Tehran' date '+%Y-%m-%d %H:%M:%S')"
+        FAILURE_COUNT=0
+        LAST_FAILURE_TIME=0
+        return 0
+    else
+        send_telegram_notification "🌐 Internet restoration attempt failed on $(hostname) at $(TZ='Asia/Tehran' date '+%Y-%m-%d %H:%M:%S')"
+        return 1
+    fi
 }
 
 log_system_resources() {
@@ -1314,14 +1326,65 @@ log_system_resources() {
     CPU_USAGE=$(top -bn1 | head -n 3 | grep "Cpu(s)" | awk '{print $2}')
     if [ "$FREE_MEM" -lt 100 ] || [ "${CPU_USAGE%.*}" -gt 90 ]; then
         echo "Low resources detected: Free RAM=$FREE_MEM MB, CPU=$CPU_USAGE%" | systemd-cat -t cloudflare-ddns -p warning
-        send_telegram_notification "⚠️ Low resources on $(hostname): Free RAM=$FREE_MEM MB, CPU=$CPU_USAGE% at $(date '+%Y-%m-%d %H:%M:%S')"
+        send_telegram_notification "⚠️ Low resources on $(hostname): Free RAM=$FREE_MEM MB, CPU=$CPU_USAGE% at $(TZ='Asia/Tehran' date '+%Y-%m-%d %H:%M:%S')"
+    fi
+}
+
+handle_telegram_commands() {
+    local offset_file="/tmp/telegram_offset"
+    local offset=0
+
+    if [ -f "$offset_file" ]; then
+        offset=$(cat "$offset_file")
+    fi
+
+    RESPONSE=$(curl -s -m 10 "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates?offset=$offset")
+
+    if echo "$RESPONSE" | jq -e '.ok' > /dev/null; then
+        UPDATES=$(echo "$RESPONSE" | jq '.result[]')
+        if [ -n "$UPDATES" ]; then
+            echo "$UPDATES" | while read -r update; do
+                UPDATE_ID=$(echo "$update" | jq -r '.update_id')
+                CHAT_ID=$(echo "$update" | jq -r '.message.chat.id')
+                MESSAGE_TEXT=$(echo "$update" | jq -r '.message.text')
+
+                # Verify chat ID is authorized
+                if [[ ",${TELEGRAM_CHAT_IDS}," == *",${CHAT_ID},"* ]]; then
+                    if [ "$MESSAGE_TEXT" == "/status" ]; then
+                        RECORD_RESPONSE=$(curl -s -X GET \
+                            "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?type=A&name=$SUBDOMAIN.$DOMAIN" \
+                            -H "Authorization: Bearer $CF_API_KEY" \
+                            -H "Content-Type: application/json")
+                        
+                        CURRENT_IP=$(echo "$RECORD_RESPONSE" | jq -r '.result[0].content')
+                        if [ "$CURRENT_IP" == "$KHAREJ_SERVER_IP" ]; then
+                            SERVER_STATUS="Kharej Server ($KHAREJ_SERVER_IP)"
+                        elif [ "$CURRENT_IP" == "$IRAN_SERVER_IP" ]; then
+                            SERVER_STATUS="Iran Server ($IRAN_SERVER_IP)"
+                        else
+                            SERVER_STATUS="Unknown ($CURRENT_IP)"
+                        fi
+
+                        TEHRAN_TIME=$(TZ='Asia/Tehran' date '+%Y-%m-%d %H:%M:%S')
+                        MESSAGE="🌐 <b>Server Status</b>%0AActive: $SERVER_STATUS%0ATime (Tehran): $TEHRAN_TIME"
+                        curl -s -m 10 "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+                            -d "chat_id=${CHAT_ID}" \
+                            -d "text=${MESSAGE}" \
+                            -d "parse_mode=HTML"
+                    fi
+                fi
+
+                # Update offset
+                echo $((UPDATE_ID + 1)) > "$offset_file"
+            done
+        fi
     fi
 }
 
 while true; do
     log_system_resources
-    check_v2ray_status || echo "V2Ray check failed" | systemd-cat -t cloudflare-ddns -p err
     check_internet_connectivity || echo "Internet check failed" | systemd-cat -t cloudflare-ddns -p err
+    handle_telegram_commands
 
     if check_server_status "$IRAN_SERVER_IP"; then
         update_dns_record "$IRAN_SERVER_IP" "Iran server is reachable"
@@ -1398,18 +1461,20 @@ EOF
         CURRENT_IP=$(echo "$RECORD_RESPONSE" | jq -r '.result[0].content')
 
         if [ "$CURRENT_IP" == "$KHAREJ_SERVER_IP" ]; then
-            SERVER_STATUS="Kharej Server ($KHAREJ_SERVER_IP) is Active"
+            SERVER_STATUS="Kharej Server ($KHAREJ_SERVER_IP)"
         elif [ "$CURRENT_IP" == "$IRAN_SERVER_IP" ]; then
-            SERVER_STATUS="Iran Server ($IRAN_SERVER_IP) is Active"
+            SERVER_STATUS="Iran Server ($IRAN_SERVER_IP)"
         else
             SERVER_STATUS="Unknown Server IP ($CURRENT_IP)"
         fi
 
         SERVICE_STATUS=$(systemctl is-active "$SCRIPT_NAME.service")
+        TEHRAN_TIME=$(TZ='Asia/Tehran' date '+%Y-%m-%d %H:%M:%S')
 
         whiptail --title "Service Status" --msgbox "
 Service State: $SERVICE_STATUS
 Active Server: $SERVER_STATUS
+Time (Tehran): $TEHRAN_TIME
 
 Kharej Server IP: $KHAREJ_SERVER_IP
 Iran Server IP: $IRAN_SERVER_IP
@@ -1430,7 +1495,7 @@ Domain: $SUBDOMAIN.$DOMAIN" 15 60
 
             exitstatus=$?
             if [ $exitstatus != 0 ]; then
-                return 1
+                exit 0
             fi
 
             case $CHOICE in
@@ -1456,13 +1521,13 @@ Domain: $SUBDOMAIN.$DOMAIN" 15 60
                     uninstall_service
                     ;;
                 7)
-                    return 0
+                    exit 0
                     ;;
             esac
         done
     }
 
-    # Start the main menu
+    # Start the DDNS management
     main_menu1
 }
 
