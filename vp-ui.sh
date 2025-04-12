@@ -1051,8 +1051,7 @@ subdomains(){
 }
 
 
-auto_ip_change(){
-
+auto_ip_change() {
     # Script configuration and paths
     SCRIPT_NAME="cloudflare-ddns"
     SCRIPT_PATH="/usr/local/bin/${SCRIPT_NAME}.sh"
@@ -1061,8 +1060,7 @@ auto_ip_change(){
     STATUS_FILE="/tmp/${SCRIPT_NAME}_current_server.status"
 
     # Required dependencies
-    REQUIRED_PACKAGES=("jq" "curl" "whiptail")
-
+    REQUIRED_PACKAGES=("jq" "curl" "whiptail" "netcat-openbsd" "network-manager")
 
     # Check and install dependencies
     check_dependencies() {
@@ -1081,23 +1079,40 @@ auto_ip_change(){
     # Function to send Telegram message
     send_telegram_message() {
         local message="$1"
-        
-        # Read chat IDs from config
-        if [ -n "$TELEGRAM_CHAT_IDS" ]; then
-            IFS=',' read -ra CHAT_IDS <<< "$TELEGRAM_CHAT_IDS"
-            for chat_id in "${CHAT_IDS[@]}"; do
-                curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+        local max_attempts=3
+        local attempt=1
+
+        if [ -z "$TELEGRAM_CHAT_IDS" ] || [ -z "$TELEGRAM_BOT_TOKEN" ]; then
+            echo "Telegram configuration missing" | systemd-cat -t cloudflare-ddns -p err
+            return 1
+        fi
+
+        IFS=',' read -ra CHAT_IDS <<< "$TELEGRAM_CHAT_IDS"
+        for chat_id in "${CHAT_IDS[@]}"; do
+            attempt=1
+            while [ $attempt -le $max_attempts ]; do
+                RESPONSE=$(curl -s -m 10 "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
                     -d "chat_id=${chat_id}" \
                     -d "text=${message}" \
-                    -d "parse_mode=HTML"
+                    -d "parse_mode=HTML")
+                
+                if echo "$RESPONSE" | jq -e '.ok' > /dev/null; then
+                    echo "Telegram message sent to $chat_id" | systemd-cat -t cloudflare-ddns -p info
+                    break
+                else
+                    echo "Telegram message attempt $attempt to $chat_id failed: $RESPONSE" | systemd-cat -t cloudflare-ddns -p err
+                    sleep 5
+                    ((attempt++))
+                fi
             done
-        fi
+            if [ $attempt -gt $max_attempts ]; then
+                echo "Failed to send Telegram message to $chat_id after $max_attempts attempts" | systemd-cat -t cloudflare-ddns -p err
+            fi
+        done
     }
-
 
     # Save configuration to a config file
     save_configuration() {
-        # Create config file
         sudo tee "$CONFIG_PATH" > /dev/null << EOF
 CF_API_KEY="$CF_API_KEY"
 DOMAIN="$DOMAIN"
@@ -1111,64 +1126,55 @@ EOF
         sudo chmod 600 "$CONFIG_PATH"
     }
 
-    # Find zone ID# Find zone ID
-# Find zone ID function
-find_zone_id() {
-    ZONE_RESPONSE=$(curl -s -X GET \
-        "https://api.cloudflare.com/client/v4/zones?name=$DOMAIN" \
-        -H "Authorization: Bearer $CF_API_KEY" \
-        -H "Content-Type: application/json")
-    
-    ZONE_ID=$(echo "$ZONE_RESPONSE" | jq -r '.result[0].id')
-    
-    if [ "$ZONE_ID" = "null" ] || [ -z "$ZONE_ID" ]; then
-        whiptail --msgbox "Failed to find Zone ID for domain $DOMAIN. Please check if the domain exists in your Cloudflare account." 10 60
-        return 1
-    fi
-    return 0
-}
+    # Find zone ID function
+    find_zone_id() {
+        ZONE_RESPONSE=$(curl -s -X GET \
+            "https://api.cloudflare.com/client/v4/zones?name=$DOMAIN" \
+            -H "Authorization: Bearer $CF_API_KEY" \
+            -H "Content-Type: application/json")
+        
+        ZONE_ID=$(echo "$ZONE_RESPONSE" | jq -r '.result[0].id')
+        
+        if [ "$ZONE_ID" = "null" ] || [ -z "$ZONE_ID" ]; then
+            whiptail --msgbox "Failed to find Zone ID for domain $DOMAIN. Please check if the domain exists in your Cloudflare account." 10 60
+            return 1
+        fi
+        return 0
+    }
 
-# Check if subdomain exists function
-check_subdomain_exists() {
-    RECORD_RESPONSE=$(curl -s -X GET \
-        "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?name=$SUBDOMAIN.$DOMAIN" \
-        -H "Authorization: Bearer $CF_API_KEY" \
-        -H "Content-Type: application/json")
-    
-    RECORD_COUNT=$(echo "$RECORD_RESPONSE" | jq '.result | length')
-    
-    if [ "$RECORD_COUNT" = "null" ] || [ "$RECORD_COUNT" -eq 0 ]; then
-        whiptail --msgbox "Error: Subdomain $SUBDOMAIN.$DOMAIN does not exist in Cloudflare. Please create it first." 10 60
-        return 1
-    fi
-    return 0
-}
+    # Check if subdomain exists function
+    check_subdomain_exists() {
+        RECORD_RESPONSE=$(curl -s -X GET \
+            "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?name=$SUBDOMAIN.$DOMAIN" \
+            -H "Authorization: Bearer $CF_API_KEY" \
+            -H "Content-Type: application/json")
+        
+        RECORD_COUNT=$(echo "$RECORD_RESPONSE" | jq '.result | length')
+        
+        if [ "$RECORD_COUNT" = "null" ] || [ "$RECORD_COUNT" -eq 0 ]; then
+            whiptail --msgbox "Error: Subdomain $SUBDOMAIN.$DOMAIN does not exist in Cloudflare. Please create it first." 10 60
+            return 1
+        fi
+        return 0
+    }
 
-# Get configuration function
-get_configuration() {
-    # Cloudflare API Configuration
-    CF_API_KEY=$(whiptail --inputbox "Enter Cloudflare API Key" 10 60 3>&1 1>&2 2>&3) || return 1    
-    FULL_DOMAIN=$(whiptail --inputbox "Enter your full domain (e.g., subdomain.example.com):" 10 60 3>&1 1>&2 2>&3) || return 1
-    
-    # Extract domain and subdomain
-    DOMAIN=$(echo "$FULL_DOMAIN" | sed -E 's/^[^.]+\.//')
-    SUBDOMAIN=$(echo "$FULL_DOMAIN" | sed -E 's/^([^.]+).+$/\1/')
-    
-    # Find zone ID first
-    find_zone_id || return 1
-
-    # Check if subdomain exists
-    check_subdomain_exists || return 1
-    
-    # Server IPs
-    KHAREJ_SERVER_IP=$(curl -s https://api.ipify.org)
-    IRAN_SERVER_IP=$(whiptail --inputbox "Enter Iran Server IP" 10 60 3>&1 1>&2 2>&3) || return 1
-
-    # Telegram Configuration
-    TELEGRAM_BOT_TOKEN=$(whiptail --inputbox "Enter Telegram Bot Token" 10 60 3>&1 1>&2 2>&3) || return 1
-    TELEGRAM_CHAT_IDS=$(whiptail --inputbox "Enter Telegram Chat IDs (comma-separated for multiple users)" 10 60 3>&1 1>&2 2>&3) || return 1
-    return 0
-}
+    # Get configuration function
+    get_configuration() {
+        CF_API_KEY=$(whiptail --inputbox "Enter Cloudflare API Key" 10 60 3>&1 1>&2 2>&3) || return 1    
+        FULL_DOMAIN=$(whiptail --inputbox "Enter your full domain (e.g., subdomain.example.com):" 10 60 3>&1 1>&2 2>&3) || return 1
+        
+        DOMAIN=$(echo "$FULL_DOMAIN" | sed -E 's/^[^.]+\.//')
+        SUBDOMAIN=$(echo "$FULL_DOMAIN" | sed -E 's/^([^.]+).+$/\1/')
+        
+        find_zone_id || return 1
+        check_subdomain_exists || return 1
+        
+        KHAREJ_SERVER_IP=$(curl -s https://api.ipify.org)
+        IRAN_SERVER_IP=$(whiptail --inputbox "Enter Iran Server IP" 10 60 3>&1 1>&2 2>&3) || return 1
+        TELEGRAM_BOT_TOKEN=$(whiptail --inputbox "Enter Telegram Bot Token" 10 60 3>&1 1>&2 2>&3) || return 1
+        TELEGRAM_CHAT_IDS=$(whiptail --inputbox "Enter Telegram Chat IDs (comma-separated for multiple users)" 10 60 3>&1 1>&2 2>&3) || return 1
+        return 0
+    }
 
     # Create the monitoring script
     create_monitor_script() {
@@ -1183,22 +1189,42 @@ CURRENT_SERVER_IP=""
 
 send_telegram_notification() {
     local message="$1"
-    if [ -n "$TELEGRAM_CHAT_IDS" ]; then
-        IFS=',' read -ra CHAT_IDS <<< "$TELEGRAM_CHAT_IDS"
-        for chat_id in "${CHAT_IDS[@]}"; do
-            curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+    local max_attempts=3
+    local attempt=1
+
+    if [ -z "$TELEGRAM_CHAT_IDS" ] || [ -z "$TELEGRAM_BOT_TOKEN" ]; then
+        echo "Telegram configuration missing" | systemd-cat -t cloudflare-ddns -p err
+        return 1
+    fi
+
+    IFS=',' read -ra CHAT_IDS <<< "$TELEGRAM_CHAT_IDS"
+    for chat_id in "${CHAT_IDS[@]}"; do
+        attempt=1
+        while [ $attempt -le $max_attempts ]; do
+            RESPONSE=$(curl -s -m 10 "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
                 -d "chat_id=${chat_id}" \
                 -d "text=${message}" \
-                -d "parse_mode=HTML"
+                -d "parse_mode=HTML")
+            
+            if echo "$RESPONSE" | jq -e '.ok' > /dev/null; then
+                echo "Telegram message sent to $chat_id" | systemd-cat -t cloudflare-ddns -p info
+                break
+            else
+                echo "Telegram message attempt $attempt to $chat_id failed: $RESPONSE" | systemd-cat -t cloudflare-ddns -p err
+                sleep 5
+                ((attempt++))
+            fi
         done
-    fi
+        if [ $attempt -gt $max_attempts ]; then
+            echo "Failed to send Telegram message to $chat_id after $max_attempts attempts" | systemd-cat -t cloudflare-ddns -p err
+        fi
+    done
 }
 
 update_dns_record() {
     local TARGET_IP=$1
     local SWITCH_REASON=$2
     
-    # Get current DNS record
     RECORD_RESPONSE=$(curl -s -X GET \
         "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?type=A&name=$SUBDOMAIN.$DOMAIN" \
         -H "Authorization: Bearer $CF_API_KEY" \
@@ -1207,7 +1233,6 @@ update_dns_record() {
     RECORD_ID=$(echo "$RECORD_RESPONSE" | jq -r '.result[0].id')
     CURRENT_IP=$(echo "$RECORD_RESPONSE" | jq -r '.result[0].content')
     
-    # Only update if IP is different
     if [ "$CURRENT_IP" != "$TARGET_IP" ]; then
         UPDATE_RESPONSE=$(curl -s -X PUT \
             "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$RECORD_ID" \
@@ -1226,23 +1251,91 @@ update_dns_record() {
     fi
 }
 
+check_server_status() {
+    local target_ip=$1
+    local max_attempts=3
+    local attempt=1
+    local success=false
+
+    while [ $attempt -le $max_attempts ]; do
+        if ping -c 4 -W 2 "$target_ip" > /dev/null 2>&1; then
+            success=true
+            break
+        fi
+        echo "Ping attempt $attempt to $target_ip failed" | systemd-cat -t cloudflare-ddns -p warning
+        sleep 5
+        ((attempt++))
+    done
+
+    if [ "$success" = false ]; then
+        if nc -z -w 5 "$target_ip" 443 > /dev/null 2>&1; then
+            success=true
+            echo "TCP check to $target_ip:443 succeeded" | systemd-cat -t cloudflare-ddns -p info
+        else
+            echo "TCP check to $target_ip:443 failed" | systemd-cat -t cloudflare-ddns -p warning
+        fi
+    fi
+
+    [ "$success" = true ]
+}
+
+check_v2ray_status() {
+    if ! systemctl is-active v2ray > /dev/null 2>&1; then
+        echo "V2Ray service is down, restarting..." | systemd-cat -t cloudflare-ddns -p warning
+        systemctl restart v2ray
+        sleep 10
+        if systemctl is-active v2ray > /dev/null 2>&1; then
+            send_telegram_notification "🚨 V2Ray restarted on $(hostname) at $(date '+%Y-%m-%d %H:%M:%S')"
+        else
+            send_telegram_notification "🚨 V2Ray restart failed on $(hostname) at $(date '+%Y-%m-%d %H:%M:%S')"
+            return 1
+        fi
+    fi
+    return 0
+}
+
+check_internet_connectivity() {
+    if ! ping -c 2 8.8.8.8 > /dev/null 2>&1; then
+        echo "Internet connectivity lost, attempting to reset..." | systemd-cat -t cloudflare-ddns -p warning
+        nmcli networking off && nmcli networking on
+        sleep 10
+        if ping -c 2 8.8.8.8 > /dev/null 2>&1; then
+            send_telegram_notification "🌐 Internet restored on $(hostname) at $(date '+%Y-%m-%d %H:%M:%S')"
+        else
+            send_telegram_notification "🌐 Internet restoration failed on $(hostname) at $(date '+%Y-%m-%d %H:%M:%S')"
+            return 1
+        fi
+    fi
+    return 0
+}
+
+log_system_resources() {
+    FREE_MEM=$(free -m | awk '/Mem:/ {print $4}')
+    CPU_USAGE=$(top -bn1 | head -n 3 | grep "Cpu(s)" | awk '{print $2}')
+    if [ "$FREE_MEM" -lt 100 ] || [ "${CPU_USAGE%.*}" -gt 90 ]; then
+        echo "Low resources detected: Free RAM=$FREE_MEM MB, CPU=$CPU_USAGE%" | systemd-cat -t cloudflare-ddns -p warning
+        send_telegram_notification "⚠️ Low resources on $(hostname): Free RAM=$FREE_MEM MB, CPU=$CPU_USAGE% at $(date '+%Y-%m-%d %H:%M:%S')"
+    fi
+}
+
 while true; do
-    if ping -c 3 "$IRAN_SERVER_IP" > /dev/null 2>&1; then
-        update_dns_record "$IRAN_SERVER_IP" "Iran server is now reachable"
+    log_system_resources
+    check_v2ray_status || echo "V2Ray check failed" | systemd-cat -t cloudflare-ddns -p err
+    check_internet_connectivity || echo "Internet check failed" | systemd-cat -t cloudflare-ddns -p err
+
+    if check_server_status "$IRAN_SERVER_IP"; then
+        update_dns_record "$IRAN_SERVER_IP" "Iran server is reachable"
     else
         update_dns_record "$KHAREJ_SERVER_IP" "Iran server is unreachable"
     fi
-    
     sleep 300
 done
 EOF
         sudo chmod +x "$SCRIPT_PATH"
     }
 
-
     # Create systemd service file
     create_service_file() {
-        # Create the monitoring script first
         create_monitor_script || return 1
 
         sudo tee "$SERVICE_PATH" > /dev/null << EOF
@@ -1264,9 +1357,11 @@ EOF
 
     # Install script and service
     install_service() {
+        check_dependencies || return 1
+        get_configuration || return 1
+        save_configuration || return 1
         create_service_file || return 1
 
-        # Reload systemd, enable and start service
         sudo systemctl daemon-reload
         sudo systemctl enable "$SCRIPT_NAME.service"
         sudo systemctl start "$SCRIPT_NAME.service"
@@ -1276,14 +1371,11 @@ EOF
 
     # Uninstall service
     uninstall_service() {
-        # Stop and disable service
         sudo systemctl stop "$SCRIPT_NAME.service"
         sudo systemctl disable "$SCRIPT_NAME.service"
 
-        # Remove files
         sudo rm -f "$SERVICE_PATH" "$SCRIPT_PATH" "$CONFIG_PATH"
 
-        # Reload systemd
         sudo systemctl daemon-reload
 
         whiptail --msgbox "Service removed successfully!" 10 60
@@ -1296,19 +1388,15 @@ EOF
             return 1
         fi
 
-        # Source the configuration
         source "$CONFIG_PATH"
 
-        # Fetch current DNS record
         RECORD_RESPONSE=$(curl -s -X GET \
             "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?type=A&name=$SUBDOMAIN.$DOMAIN" \
             -H "Authorization: Bearer $CF_API_KEY" \
             -H "Content-Type: application/json")
         
-        # Extract current IP
         CURRENT_IP=$(echo "$RECORD_RESPONSE" | jq -r '.result[0].content')
 
-        # Determine which server is active
         if [ "$CURRENT_IP" == "$KHAREJ_SERVER_IP" ]; then
             SERVER_STATUS="Kharej Server ($KHAREJ_SERVER_IP) is Active"
         elif [ "$CURRENT_IP" == "$IRAN_SERVER_IP" ]; then
@@ -1317,10 +1405,8 @@ EOF
             SERVER_STATUS="Unknown Server IP ($CURRENT_IP)"
         fi
 
-        # Get systemd service status
         SERVICE_STATUS=$(systemctl is-active "$SCRIPT_NAME.service")
 
-        # Show detailed status
         whiptail --title "Service Status" --msgbox "
 Service State: $SERVICE_STATUS
 Active Server: $SERVER_STATUS
@@ -1349,10 +1435,6 @@ Domain: $SUBDOMAIN.$DOMAIN" 15 60
 
             case $CHOICE in
                 1)
-                    check_dependencies && \
-                    get_configuration && \
-                    find_zone_id && \
-                    save_configuration && \
                     install_service
                     ;;
                 2)
@@ -1380,11 +1462,9 @@ Domain: $SUBDOMAIN.$DOMAIN" 15 60
         done
     }
 
-
-    # Run the main menu
+    # Start the main menu
     main_menu1
 }
-
 
 speed_testi(){
     # Run speedtest and capture output
