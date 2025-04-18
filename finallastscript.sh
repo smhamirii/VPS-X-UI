@@ -3180,7 +3180,10 @@ if [[ "$starter_menu" == "1" ]]; then
     main_program
 
 elif [[ "$starter_menu" == "2" ]]; then
-
+    
+    # install necessary packages
+    sudo apt install wget whiptail lsof iptables unzip gcc git curl tar jq -y
+    
     # ip problem
     sudo sysctl -p
 
