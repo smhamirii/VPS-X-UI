@@ -3059,11 +3059,15 @@ get_connectivity_status() {
     my_ip=$(hostname -I | awk '{print $1}')
     [[ -z "$my_ip" ]] && my_ip="Unknown"
 
+    response=$(curl -s "http://ip-api.com/json/$IP")
+
+    country=$(echo "$response" | jq -r '.country')
+
     tamin_status=$(check_connectivity "tamin.ir")
     google_status=$(check_connectivity "google.com")
     my_ip_status=$(check_connectivity "$my_ip")
 
-    echo "Connectivity Status:\nTamin.ir: $tamin_status\nGoogle.com: $google_status\nMy IP ($my_ip): $my_ip_status"
+    echo "Connectivity Status:\nTamin.ir: $tamin_status\nGoogle.com: $google_status\nMy IP ($my_ip): $my_ip_status\nCountry: $country"
 }
 
 
