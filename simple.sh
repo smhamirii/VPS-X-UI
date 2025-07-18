@@ -592,7 +592,7 @@ EOF
             
             # Extract main domain
             domain=$(echo "$subdomain" | awk -F '.' '{print $(NF-1)"."$NF}')
-            [[ -z "$domain" ]] && error_exit "Failed to extract main domain"
+            [[ $? -ne 0 || -z "$domain" ]] && error_exit "Failed to extract main domain"
 
             # Get zone ID
             zone_id=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones?name=$domain" \
