@@ -575,10 +575,7 @@ EOF
 
         # Function to configure HTTPS
         configure_https() {
-            local subdomain="$1"
-            local cf_api_token="$2"
-            local vps_ip="$3"
-            local remote_addr="$4"
+
 
             echo "Debug: Subdomain=$subdomain, CF_API_TOKEN=$cf_api_token, VPS_IP=$vps_ip, Remote_Addr=$remote_addr"
 
