@@ -119,6 +119,11 @@ edit_kharej() {
     local subdomain=$(whiptail --inputbox "Enter your full domain (e.g., subdomain.example.com):" 8 50 3>&1 1>&2 2>&3)
     local remote_addr=$(whiptail --title "Remote Address" --inputbox "Enter IRAN (IPv4/IPv6):" 8 50 3>&1 1>&2 2>&3)
 
+    # Error handling function
+    error_exit() {
+        whiptail --msgbox "Error: $1" 10 60
+        exit 1
+    }
 
     # Function to check or create DNS record
     check_or_create_dns_record() {
@@ -173,7 +178,6 @@ edit_kharej() {
 
     # Function to configure HTTPS
     configure_https() {
-        local use_cloudflare="$2"
         local zone_id=""
         local record_id=""
         local original_ip=""
@@ -200,6 +204,7 @@ edit_kharej() {
         # Update DNS to VPS IP
         update_dns_record "$subdomain" "$remote_addr" "$zone_id" "$record_id" "$cf_api_token"
     }
+
     configure_https
     
     new_ip=$remote_addr
@@ -576,9 +581,6 @@ EOF
         # Function to configure HTTPS
         configure_https() {
 
-
-            echo "Debug: Subdomain=$subdomain, CF_API_TOKEN=$cf_api_token, VPS_IP=$vps_ip, Remote_Addr=$remote_addr"
-
             # Validate inputs
             [[ -z "$cf_api_token" ]] && error_exit "Cloudflare API token is required"
             [[ -z "$subdomain" ]] && error_exit "Domain is required. Please ensure a valid subdomain is provided."
@@ -621,6 +623,13 @@ EOF
             
             # Start nginx
             systemctl start nginx || error_exit "Failed to start nginx"
+
+            # Update DNS to final IP
+            final_ip=$remote_addr
+
+            update_dns_record "$subdomain" "$final_ip" "$zone_id" "$record_id" "$cf_api_token"
+            rm -f /tmp/original_ip_backup
+
 
             # Update X-UI database with certificate paths
             web_cert_file="/etc/letsencrypt/live/$subdomain/fullchain.pem"
@@ -818,14 +827,3 @@ clear
 # main program
 main_program
           
-
-
-
-
-
-
-   
-           
-
-
-
