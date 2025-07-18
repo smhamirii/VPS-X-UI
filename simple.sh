@@ -575,24 +575,21 @@ EOF
 
         # Function to configure HTTPS
         configure_https() {
+            local subdomain="$1"
+            local cf_api_token="$2"
+            local vps_ip="$3"
+            local remote_addr="$4"
 
-            local use_cloudflare="$2"
+            echo "Debug: Subdomain=$subdomain, CF_API_TOKEN=$cf_api_token, VPS_IP=$vps_ip, Remote_Addr=$remote_addr"
 
-            local zone_id=""
-            local record_id=""
-            local original_ip=""
+            # Validate inputs
+            [[ -z "$cf_api_token" ]] && error_exit "Cloudflare API token is required"
+            [[ -z "$subdomain" ]] && error_exit "Domain is required. Please ensure a valid subdomain is provided."
+            [[ ! "$subdomain" =~ ^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]] && error_exit "Invalid subdomain format. Please enter a valid domain (e.g., subdomain.example.com)"
 
-        
-            [[ $? -ne 0 || -z "$cf_api_token" ]] && error_exit "Cloudflare API token is required"
-           
-
-            # Prompt for subdomain
-            [[ $? -ne 0 || -z "$subdomain" ]] && error_exit "Domain is required"
-
-            
             # Extract main domain
             domain=$(echo "$subdomain" | awk -F '.' '{print $(NF-1)"."$NF}')
-            [[ $? -ne 0 || -z "$domain" ]] && error_exit "Failed to extract main domain"
+            [[ -z "$domain" ]] && error_exit "Failed to extract main domain"
 
             # Get zone ID
             zone_id=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones?name=$domain" \
@@ -613,7 +610,6 @@ EOF
             whiptail --msgbox "Waiting 30 seconds for DNS propagation..." 10 60
             sleep 30
 
-
             # Install certbot and nginx
             apt install -y certbot nginx || error_exit "Failed to install certbot and nginx"
 
@@ -628,10 +624,6 @@ EOF
             
             # Start nginx
             systemctl start nginx || error_exit "Failed to start nginx"
-
-
-            final_ip=$remote_addr
-            
 
             # Update X-UI database with certificate paths
             web_cert_file="/etc/letsencrypt/live/$subdomain/fullchain.pem"
