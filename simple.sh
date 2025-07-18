@@ -340,10 +340,10 @@ install_kharej_server() {
     # Apply the changes immediately
     sudo sysctl -p
 
-    local vps_ip=$(curl -s https://api.ipify.org) || error_exit "Failed to retrieve VPS IP address"
-    local cf_api_token=$(whiptail --inputbox "Enter your Cloudflare API token:" 8 50 3>&1 1>&2 2>&3)
-    local subdomain=$(whiptail --inputbox "Enter your full domain (e.g., subdomain.example.com):" 8 50 3>&1 1>&2 2>&3)
-    local remote_addr=$(whiptail --title "Remote Address" --inputbox "Enter IRAN (IPv4/IPv6):" 8 50 3>&1 1>&2 2>&3)
+    vps_ip=$(curl -s https://api.ipify.org) || error_exit "Failed to retrieve VPS IP address"
+    cf_api_token=$(whiptail --inputbox "Enter your Cloudflare API token:" 8 50 3>&1 1>&2 2>&3)
+    subdomain=$(whiptail --inputbox "Enter your full domain (e.g., subdomain.example.com):" 8 50 3>&1 1>&2 2>&3)
+    remote_addr=$(whiptail --title "Remote Address" --inputbox "Enter IRAN (IPv4/IPv6):" 8 50 3>&1 1>&2 2>&3)
             
     # Confirm before proceeding
     whiptail --yesno "Ready to proceed:\n\nDomain: $subdomain\nIran IP: $remote_addr\nVPS IP: $vps_ip\n\nContinue?" 15 60 || exit 0
