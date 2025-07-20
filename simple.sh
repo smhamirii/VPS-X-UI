@@ -178,15 +178,12 @@ edit_kharej() {
 
     # Function to configure HTTPS
     configure_https() {
-        local zone_id=""
-        local record_id=""
-        local original_ip=""
 
-        [[ $? -ne 0 || -z "$cf_api_token" ]] && error_exit "Cloudflare API token is required"
-        
-        # Prompt for subdomain
-        [[ $? -ne 0 || -z "$subdomain" ]] && error_exit "Domain is required"
-        
+        # Validate inputs
+        [[ -z "$cf_api_token" ]] && error_exit "Cloudflare API token is required"
+        [[ -z "$subdomain" ]] && error_exit "Domain is required. Please ensure a valid subdomain is provided."
+        [[ ! "$subdomain" =~ ^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]] && error_exit "Invalid subdomain format. Please enter a valid domain (e.g., subdomain.example.com)"
+
         # Extract main domain
         domain=$(echo "$subdomain" | awk -F '.' '{print $(NF-1)"."$NF}')
         [[ -z "$domain" ]] && error_exit "Failed to extract main domain"
@@ -826,4 +823,3 @@ clear
 
 # main program
 main_program
-          
