@@ -489,7 +489,7 @@ EOF
             cd /usr/local/ || error_exit "Failed to change to /usr/local/"
 
             # Download X-UI
-            url="https://github.com/MHSanaei/3x-ui/releases/download/v2.6.0/x-ui-linux-$(arch).tar.gz"
+            url="https://github.com/MHSanaei/3x-ui/releases/download/v2.6.5/x-ui-linux-$(arch).tar.gz"
             wget -N --no-check-certificate -O /usr/local/x-ui-linux-$(arch).tar.gz "$url" || error_exit "Failed to download X-UI"
 
             # Remove existing X-UI installation if present
