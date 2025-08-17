@@ -2203,11 +2203,9 @@ get_connectivity_status() {
 
 
 usertelegram() {
-
-    # Determine the script's directory
-    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    SCRIPT_NAME="$(basename "${BASH_SOURCE[0]}")"
+    # Define paths
     LOG_FILE="/var/log/mhsanaee_bot.log"
+    BOT_SCRIPT_PATH="/opt/mhsanaee-bot/mhsanaee_bot.sh"
 
     # Function to log messages
     log() {
@@ -2289,13 +2287,219 @@ usertelegram() {
         # Create bot directory with proper permissions
         mkdir -p /opt/mhsanaee-bot
         chmod 755 /opt/mhsanaee-bot
-        cp "$SCRIPT_DIR/$SCRIPT_NAME" /opt/mhsanaee-bot/mhsanaee_bot.sh
+
+        # Write bot script to /opt/mhsanaee-bot/mhsanaee_bot.sh
+        cat << 'EOF' > "$BOT_SCRIPT_PATH"
+#!/bin/bash
+
+LOG_FILE="/var/log/mhsanaee_bot.log"
+
+# Function to log messages
+log() {
+    echo "$(date): $1" >> "$LOG_FILE" 2>>"$LOG_FILE"
+}
+
+# Bot logic starts here
+run_bot() {
+    # Load configuration
+    if ! source /opt/mhsanaee-bot/config.sh; then
+        log "Error: Failed to source /opt/mhsanaee-bot/config.sh"
+        exit 1
+    fi
+
+    # Check if database exists
+    if [ ! -f "$DB_PATH" ]; then
+        log "Error: Database file $DB_PATH not found"
+        exit 1
+    fi
+
+    # Function to send Telegram message
+    send_message() {
+        local chat_id=$1
+        local message=$2
+        curl -s -X POST "$API_URL/sendMessage" \
+            -d chat_id="$chat_id" \
+            -d text="$message" \
+            -d parse_mode="HTML" >/dev/null
         if [ $? -ne 0 ]; then
-            log "Error: Failed to copy script to /opt/mhsanaee-bot/mhsanaee_bot.sh"
-            whiptail --msgbox "Error: Failed to copy script." 8 60
+            log "Error: Failed to send message to chat_id=$chat_id"
+        fi
+    }
+
+    # Function to parse VLESS config
+    parse_vless_config() {
+        local vless=$1
+        if [[ $vless =~ vless://([a-z0-9-]{8}-[a-z0-9-]{4}-[a-z0-9-]{4}-[a-z0-9-]{4}-[a-z0-9-]{12})@[^:]+:[0-9]+(\?.*#[^[:space:]]+|#[^[:space:]]+) ]]; then
+            EMAIL=$(echo "$vless" | grep -oP '#\K[^[:space:]]+' | tr '[:upper:]' '[:lower:]' | sed 's/[^-]*-//')
+            echo "$EMAIL"
+        else
+            log "Error: Invalid VLESS config"
+            echo ""
+        fi
+    }
+
+    # Function to query client usage from SQLite
+    get_client_usage() {
+        local email=$1
+        local result
+        result=$(sqlite3 "$DB_PATH" <<EOF
+SELECT total, up + down AS used, expiry_time
+FROM client_traffics
+WHERE LOWER(email) = LOWER('$email');
+EOF
+ 2>>"$LOG_FILE")
+        if [ $? -ne 0 ]; then
+            log "Error: SQLite query failed for email: $email"
+        fi
+        echo "$result"
+    }
+
+    # Function to format usage response in Persian
+    format_usage() {
+        local total=$1
+        local used=$2
+        local expiry=$3
+        if [ -z "$total" ] || [ -z "$used" ] || [ -z "$expiry" ]; then
+            log "Error: One or more usage values are empty"
+            echo -e "<b>اطلاعات استفاده کانفیگ</b>\nمجموع: نامشخص\nاستفاده‌شده: نامشخص\nمانده: نامشخص\nانقضا: نامشخص\n<b>وضعیت: نامشخص</b>"
+            return
+        fi
+        total_gb=$(echo "scale=2; $total / 1073741824" | bc | awk '{printf "%.2f", $0}')
+        used_gb=$(echo "scale=2; $used / 1073741824" | bc | awk '{printf "%.2f", $0}')
+        if [ "$total" -eq 0 ]; then
+            remaining="نامحدود"
+        else
+            remaining=$(echo "scale=2; $total_gb - $used_gb" | bc | awk '{printf "%.2f", $0}')
+            remaining="${remaining} گیگابایت"
+        fi
+        current_time=$(date +%s)
+        expiry_timestamp=$((expiry / 1000))
+        if [ "$total" -eq 0 ] && [ "$expiry" -eq 0 ]; then
+            status="فعال"
+        elif [ "$total" -eq 0 ]; then
+            if [ "$expiry_timestamp" -le "$current_time" ] && [ "$expiry" -ne 0 ]; then
+                status="منقضی‌شده"
+            else
+                status="فعال"
+            fi
+        elif [ "$expiry" -eq 0 ]; then
+            if [ $(echo "$used > $total" | bc) -eq 1 ]; then
+                status="منقضی‌شده"
+            else
+                status="فعال"
+            fi
+        else
+            if [ "$expiry_timestamp" -le "$current_time" ] || [ $(echo "$used > $total" | bc) -eq 1 ]; then
+                status="منقضی‌شده"
+            else
+                status="فعال"
+            fi
+        fi
+        if [ "$expiry" -eq 0 ]; then
+            expiry_date="بدون انقضا"
+            remaining_time=""
+        else
+            expiry_date=$(TZ="$TEHRAN_TZ" date -d "@$expiry_timestamp" +"%Y-%m-%d %H:%M:%S (تهران)")
+            remaining_days=$(( (expiry_timestamp - current_time) / 86400 ))
+            remaining_time="مانده: $remaining_days روز"
+        fi
+        echo -e "<b>اطلاعات استفاده کانفیگ</b>\nمجموع: ${total_gb} گیگابایت\nاستفاده‌شده: ${used_gb} گیگابایت\nمانده: $remaining\nانقضا: $expiry_date\n$remaining_time\n<b>وضعیت: $status</b>"
+    }
+
+    # Function to handle commands
+    handle_command() {
+        local chat_id=$1
+        local command=$2
+        local args=$3
+        case "$command" in
+            "/start")
+                send_message "$chat_id" "خوش آمدید به ربات تلگرام SafeNet! لطفاً پیکربندی VLESS خود را برای من فوروارد کنید تا جزئیات استفاده را نمایش دهم."
+                ;;
+            "/help")
+                send_message "$chat_id" "دستورات موجود:\n/start - شروع ربات\nلطفاً پیکربندی VLESS خود را فوروارد کنید."
+                ;;
+            *)
+                send_message "$chat_id" "دستور ناشناخته. لطفاً پیکربندی VLESS خود را فوروارد کنید یا از /help استفاده کنید."
+                ;;
+        esac
+    }
+
+    # Main loop for long polling
+    OFFSET=0
+    while true; do
+        updates=$(curl -s -X GET "$API_URL/getUpdates?offset=$OFFSET&timeout=30" 2>>"$LOG_FILE")
+        if [ $? -ne 0 ]; then
+            log "Error: Failed to fetch updates from Telegram API"
+            sleep 5
+            continue
+        fi
+        update_ids=$(echo "$updates" | jq -r '.result[].update_id' 2>>"$LOG_FILE")
+        if [ $? -ne 0 ]; then
+            log "Error: jq failed to parse update_ids"
+            sleep 5
+            continue
+        fi
+        if [ -z "$update_ids" ]; then
+            sleep 1
+            continue
+        fi
+        for update_id in $update_ids; do
+            OFFSET=$((update_id + 1))
+            chat_id=$(echo "$updates" | jq -r ".result[] | select(.update_id == $update_id) | .message.chat.id" 2>>"$LOG_FILE")
+            if [ $? -ne 0 ]; then
+                log "Error: jq failed to parse chat_id for update_id=$update_id"
+                continue
+            fi
+            text=$(echo "$updates" | jq -r ".result[] | select(.update_id == $update_id) | .message.text // empty" 2>>"$LOG_FILE")
+            if [ $? -ne 0 ]; then
+                log "Error: jq failed to parse text for update_id=$update_id"
+                continue
+            fi
+            if [[ "$text" =~ ^vless:// ]]; then
+                email=$(parse_vless_config "$text")
+                if [ -z "$email" ]; then
+                    send_message "$chat_id" "خطا: پیکربندی VLESS نامعتبر است"
+                    continue
+                fi
+                result=$(get_client_usage "$email")
+                if [ -z "$result" ]; then
+                    send_message "$chat_id" "خطا: کانفیگ با ایمیل '$email' یافت نشد"
+                    continue
+                fi
+                IFS='|' read -r total used expiry <<<"$result"
+                if [ -z "$total" ] || [ -z "$used" ] || [ -z "$expiry" ]; then
+                    log "Error: Failed to parse usage result: $result"
+                    send_message "$chat_id" "خطا: امکان بازیابی جزئیات استفاده وجود ندارد"
+                    continue
+                fi
+                response=$(format_usage "$total" "$used" "$expiry")
+                send_message "$chat_id" "$response"
+                continue
+            fi
+            if [[ "$text" =~ ^/ ]]; then
+                command=$(echo "$text" | awk '{print $1}')
+                args=$(echo "$text" | awk '{$1=""; print $0}' | xargs)
+                handle_command "$chat_id" "$command" "$args"
+            fi
+        done
+    done
+}
+
+# Main execution
+if [ "$1" == "--run" ]; then
+    log "Starting bot"
+    run_bot
+else
+    echo "This script should only be run by the systemd service with --run argument."
+    exit 1
+fi
+EOF
+        if [ $? -ne 0 ]; then
+            log "Error: Failed to write bot script to $BOT_SCRIPT_PATH"
+            whiptail --msgbox "Error: Failed to write bot script." 8 60
             exit 1
         fi
-        chmod +x /opt/mhsanaee-bot/mhsanaee_bot.sh
+        chmod +x "$BOT_SCRIPT_PATH"
 
         # Save bot token to config file
         echo "BOT_TOKEN=\"$BOT_TOKEN\"" > /opt/mhsanaee-bot/config.sh
@@ -2379,201 +2583,9 @@ EOF
         fi
     }
 
-    # Bot logic starts here
-    run_bot() {
-        # Load configuration
-        if ! source /opt/mhsanaee-bot/config.sh; then
-            log "Error: Failed to source /opt/mhsanaee-bot/config.sh"
-            exit 1
-        fi
-
-        # Check if database exists
-        if [ ! -f "$DB_PATH" ]; then
-            log "Error: Database file $DB_PATH not found"
-            exit 1
-        fi
-
-        # Function to send Telegram message
-        send_message() {
-            local chat_id=$1
-            local message=$2
-            curl -s -X POST "$API_URL/sendMessage" \
-                -d chat_id="$chat_id" \
-                -d text="$message" \
-                -d parse_mode="HTML" >/dev/null
-            if [ $? -ne 0 ]; then
-                log "Error: Failed to send message to chat_id=$chat_id"
-            fi
-        }
-
-        # Function to parse VLESS config
-        parse_vless_config() {
-            local vless=$1
-            if [[ $vless =~ vless://([a-z0-9-]{8}-[a-z0-9-]{4}-[a-z0-9-]{4}-[a-z0-9-]{4}-[a-z0-9-]{12})@[^:]+:[0-9]+(\?.*#[^[:space:]]+|#[^[:space:]]+) ]]; then
-                EMAIL=$(echo "$vless" | grep -oP '#\K[^[:space:]]+' | tr '[:upper:]' '[:lower:]' | sed 's/[^-]*-//')
-                echo "$EMAIL"
-            else
-                log "Error: Invalid VLESS config"
-                echo ""
-            fi
-        }
-
-        # Function to query client usage from SQLite
-        get_client_usage() {
-            local email=$1
-            local result
-            result=$(sqlite3 "$DB_PATH" <<EOF
-SELECT total, up + down AS used, expiry_time
-FROM client_traffics
-WHERE LOWER(email) = LOWER('$email');
-EOF
-            2>>"$LOG_FILE")
-            
-            if [ $? -ne 0 ]; then
-                log "Error: SQLite query failed for email: $email"
-            fi
-            echo "$result"
-        }
-
-        # Function to format usage response in Persian
-        format_usage() {
-            local total=$1
-            local used=$2
-            local expiry=$3
-            if [ -z "$total" ] || [ -z "$used" ] || [ -z "$expiry" ]; then
-                log "Error: One or more usage values are empty"
-                echo -e "<b>اطلاعات استفاده کانفیگ</b>\nمجموع: نامشخص\nاستفاده‌شده: نامشخص\nمانده: نامشخص\nانقضا: نامشخص\n<b>وضعیت: نامشخص</b>"
-                return
-            fi
-            total_gb=$(echo "scale=2; $total / 1073741824" | bc | awk '{printf "%.2f", $0}')
-            used_gb=$(echo "scale=2; $used / 1073741824" | bc | awk '{printf "%.2f", $0}')
-            if [ "$total" -eq 0 ]; then
-                remaining="نامحدود"
-            else
-                remaining=$(echo "scale=2; $total_gb - $used_gb" | bc | awk '{printf "%.2f", $0}')
-                remaining="${remaining} گیگابایت"
-            fi
-            current_time=$(date +%s)
-            expiry_timestamp=$((expiry / 1000))
-            if [ "$total" -eq 0 ] && [ "$expiry" -eq 0 ]; then
-                status="فعال"
-            elif [ "$total" -eq 0 ]; then
-                if [ "$expiry_timestamp" -le "$current_time" ] && [ "$expiry" -ne 0 ]; then
-                    status="منقضی‌شده"
-                else
-                    status="فعال"
-                fi
-            elif [ "$expiry" -eq 0 ]; then
-                if [ $(echo "$used > $total" | bc) -eq 1 ]; then
-                    status="منقضی‌شده"
-                else
-                    status="فعال"
-                fi
-            else
-                if [ "$expiry_timestamp" -le "$current_time" ] || [ $(echo "$used > $total" | bc) -eq 1 ]; then
-                    status="منقضی‌شده"
-                else
-                    status="فعال"
-                fi
-            fi
-            if [ "$expiry" -eq 0 ]; then
-                expiry_date="بدون انقضا"
-                remaining_time=""
-            else
-                expiry_date=$(TZ="$TEHRAN_TZ" date -d "@$expiry_timestamp" +"%Y-%m-%d %H:%M:%S (تهران)")
-                remaining_days=$(( (expiry_timestamp - current_time) / 86400 ))
-                remaining_time="مانده: $remaining_days روز"
-            fi
-            echo -e "<b>اطلاعات استفاده کانفیگ</b>\nمجموع: ${total_gb} گیگابایت\nاستفاده‌شده: ${used_gb} گیگابایت\nمانده: $remaining\nانقضا: $expiry_date\n$remaining_time\n<b>وضعیت: $status</b>"
-        }
-
-        # Function to handle commands
-        handle_command() {
-            local chat_id=$1
-            local command=$2
-            local args=$3
-            case "$command" in
-                "/start")
-                    send_message "$chat_id" "خوش آمدید به ربات تلگرام SafeNet! لطفاً پیکربندی VLESS خود را برای من فوروارد کنید تا جزئیات استفاده را نمایش دهم."
-                    ;;
-                "/help")
-                    send_message "$chat_id" "دستورات موجود:\n/start - شروع ربات\nلطفاً پیکربندی VLESS خود را فوروارد کنید."
-                    ;;
-                *)
-                    send_message "$chat_id" "دستور ناشناخته. لطفاً پیکربندی VLESS خود را فوروارد کنید یا از /help استفاده کنید."
-                    ;;
-            esac
-        }
-
-        # Main loop for long polling
-        OFFSET=0
-        while true; do
-            updates=$(curl -s -X GET "$API_URL/getUpdates?offset=$OFFSET&timeout=30" 2>>"$LOG_FILE")
-            if [ $? -ne 0 ]; then
-                log "Error: Failed to fetch updates from Telegram API"
-                sleep 5
-                continue
-            fi
-            update_ids=$(echo "$updates" | jq -r '.result[].update_id' 2>>"$LOG_FILE")
-            if [ $? -ne 0 ]; then
-                log "Error: jq failed to parse update_ids"
-                sleep 5
-                continue
-            fi
-            if [ -z "$update_ids" ]; then
-                sleep 1
-                continue
-            fi
-            for update_id in $update_ids; do
-                OFFSET=$((update_id + 1))
-                chat_id=$(echo "$updates" | jq -r ".result[] | select(.update_id == $update_id) | .message.chat.id" 2>>"$LOG_FILE")
-                if [ $? -ne 0 ]; then
-                    log "Error: jq failed to parse chat_id for update_id=$update_id"
-                    continue
-                fi
-                text=$(echo "$updates" | jq -r ".result[] | select(.update_id == $update_id) | .message.text // empty" 2>>"$LOG_FILE")
-                if [ $? -ne 0 ]; then
-                    log "Error: jq failed to parse text for update_id=$update_id"
-                    continue
-                fi
-                if [[ "$text" =~ ^vless:// ]]; then
-                    email=$(parse_vless_config "$text")
-                    if [ -z "$email" ]; then
-                        send_message "$chat_id" "خطا: پیکربندی VLESS نامعتبر است"
-                        continue
-                    fi
-                    result=$(get_client_usage "$email")
-                    if [ -z "$result" ]; then
-                        send_message "$chat_id" "خطا: کانفیگ با ایمیل '$email' یافت نشد"
-                        continue
-                    fi
-                    IFS='|' read -r total used expiry <<<"$result"
-                    if [ -z "$total" ] || [ -z "$used" ] || [ -z "$expiry" ]; then
-                        log "Error: Failed to parse usage result: $result"
-                        send_message "$chat_id" "خطا: امکان بازیابی جزئیات استفاده وجود ندارد"
-                        continue
-                    fi
-                    response=$(format_usage "$total" "$used" "$expiry")
-                    send_message "$chat_id" "$response"
-                    continue
-                fi
-                if [[ "$text" =~ ^/ ]]; then
-                    command=$(echo "$text" | awk '{print $1}')
-                    args=$(echo "$text" | awk '{$1=""; print $0}' | xargs)
-                    handle_command "$chat_id" "$command" "$args"
-                fi
-            done
-        done
-    }
-
     # Main execution
     check_dependencies
-    if [ "$1" == "--run" ]; then
-        log "Starting bot"
-        run_bot
-    else
-        show_menu
-    fi
+    show_menu
 }
 
 
