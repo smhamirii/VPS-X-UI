@@ -2342,7 +2342,8 @@ run_bot() {
     get_client_usage() {
         local email=$1
         local result
-        result=$(sqlite3 "$DB_PATH" "SELECT total, up + down AS used, expiry_time FROM client_traffics WHERE LOWER(email) = LOWER('$email');" 2>>"$LOG_FILE")
+        # Use printf to safely escape the email variable
+        result=$(sqlite3 "$DB_PATH" "SELECT total, up + down AS used, expiry_time FROM client_traffics WHERE LOWER(email) = LOWER('$(printf '%s' "$email" | sqlite3 -cmd '.timeout 1000' /dev/null)');" 2>>"$LOG_FILE")
         if [ $? -ne 0 ]; then
             log "Error: SQLite query failed for email: $email"
         fi
@@ -2437,7 +2438,7 @@ run_bot() {
         if [ -z "$update_ids" ]; then
             sleep 1
             continue
-        fi
+        fi纠正
         for update_id in $update_ids; do
             OFFSET=$((update_id + 1))
             chat_id=$(echo "$updates" | jq -r ".result[] | select(.update_id == $update_id) | .message.chat.id" 2>>"$LOG_FILE")
