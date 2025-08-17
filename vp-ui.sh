@@ -2342,12 +2342,7 @@ run_bot() {
     get_client_usage() {
         local email=$1
         local result
-        result=$(sqlite3 "$DB_PATH" <<EOF
-SELECT total, up + down AS used, expiry_time
-FROM client_traffics
-WHERE LOWER(email) = LOWER('$email');
-EOF
- 2>>"$LOG_FILE")
+        result=$(sqlite3 "$DB_PATH" "SELECT total, up + down AS used, expiry_time FROM client_traffics WHERE LOWER(email) = LOWER('$email');" 2>>"$LOG_FILE")
         if [ $? -ne 0 ]; then
             log "Error: SQLite query failed for email: $email"
         fi
