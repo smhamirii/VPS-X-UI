@@ -2343,12 +2343,7 @@ run_bot() {
         local email=$1
         local result
         log "Debug: Querying database for email: $email"
-        result=$(sqlite3 "$DB_PATH" 2>>"$LOG_FILE" <<EOF
-SELECT total, up + down AS used, expiry_time
-FROM client_traffics
-WHERE LOWER(email) = LOWER('$email');
-EOF
-)
+        result=$(sqlite3 "$DB_PATH" "SELECT total, up + down AS used, expiry_time FROM client_traffics WHERE LOWER(email) = LOWER('$email');" 2>>"$LOG_FILE")
         if [ $? -ne 0 ]; then
             log "Error: SQLite query failed for email: $email"
         else
