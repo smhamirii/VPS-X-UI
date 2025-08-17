@@ -2423,7 +2423,7 @@ run_bot() {
     # Main loop for long polling
     OFFSET=0
     while true; do
-        updates=$(curl -s -X GET "$API_URL/getUpdates?offset=$OFFSET&timeout=30" 2>>"$LOG_FILE")
+        updates=$(curl -s -X GET "$API_URL/getUpdates?offset=$OFFSET&timeout=30")
         if [ $? -ne 0 ]; then
             log "Error: Failed to fetch updates from Telegram API"
             sleep 5
@@ -2438,8 +2438,9 @@ run_bot() {
         if [ -z "$update_ids" ]; then
             sleep 1
             continue
-        fi纠正
-        for update_id in $update_ids; do
+        fi
+        for update_id in $update_ids
+        do
             OFFSET=$((update_id + 1))
             chat_id=$(echo "$updates" | jq -r ".result[] | select(.update_id == $update_id) | .message.chat.id" 2>>"$LOG_FILE")
             if [ $? -ne 0 ]; then
@@ -2583,7 +2584,6 @@ EOF
     check_dependencies
     show_menu
 }
-
 
 # main program
 main_program() {
