@@ -2204,60 +2204,111 @@ get_connectivity_status() {
 
 usertelegram() {
 
-    # Determine the script's directory to handle GitHub downloads
+    # Determine the script's directory
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     SCRIPT_NAME="$(basename "${BASH_SOURCE[0]}")"
     LOG_FILE="/var/log/mhsanaee_bot.log"
 
-    # Function to log messages (minimal logging)
+    # Function to log messages
     log() {
         echo "$(date): $1" >> "$LOG_FILE" 2>>"$LOG_FILE"
     }
-    
+
+    # Check for required dependencies
+    check_dependencies() {
+        local deps=("curl" "jq" "whiptail" "sqlite3" "bc")
+        for dep in "${deps[@]}"; do
+            if ! command -v "$dep" &> /dev/null; then
+                log "Error: Required dependency $dep not found"
+                whiptail --msgbox "Error: Package $dep is not installed. Please install it." 8 60
+                exit 1
+            fi
+        done
+    }
+
     # Whiptail menu for installation, uninstallation, and editing
     show_menu() {
-        CHOICE=$(whiptail --title "Mhsanaee Bot Manager" --menu "Choose an option" 15 60 5 \
-            "1" "Install Bot" \
-            "2" "Uninstall Bot" \
-            "3" "Edit Bot Token" \
-            "4" "Start Bot" \
-            "5" "Stop Bot" 3>&1 1>&2 2>&3)
+        CHOICE=$(whiptail --title "Mhsanaee Bot Management" --menu "Select an option" 15 60 5 \
+            "1" "Install bot" \
+            "2" "Uninstall bot" \
+            "3" "Edit bot token" \
+            "4" "Start bot" \
+            "5" "Stop bot" 3>&1 1>&2 2>&3)
         
         case $CHOICE in
             1) install_bot ;;
             2) uninstall_bot ;;
             3) edit_token ;;
-            4) systemctl start mhsanaee-bot ;;
-            5) systemctl stop mhsanaee-bot ;;
+            4) start_bot ;;
+            5) stop_bot ;;
         esac
     }
-    
+
+    # Function to start the bot
+    start_bot() {
+        if [ ! -f /etc/systemd/system/mhsanaee-bot.service ]; then
+            whiptail --msgbox "Error: Bot is not installed. Please install the bot first." 8 60
+            return
+        fi
+        systemctl start mhsanaee-bot
+        if [ $? -eq 0 ]; then
+            whiptail --msgbox "Bot started successfully!" 8 60
+            log "Bot started successfully"
+        else
+            whiptail --msgbox "Error: Failed to start bot." 8 60
+            log "Error: Failed to start bot"
+        fi
+    }
+
+    # Function to stop the bot
+    stop_bot() {
+        if [ ! -f /etc/systemd/system/mhsanaee-bot.service ]; then
+            whiptail --msgbox "Error: Bot is not installed." 8 60
+            return
+        fi
+        systemctl stop mhsanaee-bot
+        if [ $? -eq 0 ]; then
+            whiptail --msgbox "Bot stopped successfully!" 8 60
+            log "Bot stopped successfully"
+        else
+            whiptail --msgbox "Error: Failed to stop bot." 8 60
+            log "Error: Failed to stop bot"
+        fi
+    }
+
     # Installation function
     install_bot() {
         # Ask for bot token
-        BOT_TOKEN=$(whiptail --inputbox "Enter your Telegram Bot Token" 8 60 3>&1 1>&2 2>&3)
+        BOT_TOKEN=$(whiptail --inputbox "Enter your Telegram bot token" 8 60 3>&1 1>&2 2>&3)
         if [ -z "$BOT_TOKEN" ]; then
             whiptail --msgbox "Bot token is required. Installation aborted." 8 60
             log "Installation aborted: No bot token provided"
             return
         fi
-    
-        # Create bot directory
+
+        # Create bot directory with proper permissions
         mkdir -p /opt/mhsanaee-bot
+        chmod 755 /opt/mhsanaee-bot
         cp "$SCRIPT_DIR/$SCRIPT_NAME" /opt/mhsanaee-bot/mhsanaee_bot.sh
         if [ $? -ne 0 ]; then
             log "Error: Failed to copy script to /opt/mhsanaee-bot/mhsanaee_bot.sh"
+            whiptail --msgbox "Error: Failed to copy script." 8 60
             exit 1
         fi
         chmod +x /opt/mhsanaee-bot/mhsanaee_bot.sh
-    
+
         # Save bot token to config file
         echo "BOT_TOKEN=\"$BOT_TOKEN\"" > /opt/mhsanaee-bot/config.sh
         echo "API_URL=\"https://api.telegram.org/bot$BOT_TOKEN\"" >> /opt/mhsanaee-bot/config.sh
         echo "DB_PATH=\"/etc/x-ui/x-ui.db\"" >> /opt/mhsanaee-bot/config.sh
         echo "LOG_FILE=\"/var/log/mhsanaee_bot.log\"" >> /opt/mhsanaee-bot/config.sh
         echo "TEHRAN_TZ=\"Asia/Tehran\"" >> /opt/mhsanaee-bot/config.sh
-    
+        chmod 644 /opt/mhsanaee-bot/config.sh
+
+        # Ensure log file exists with proper permissions
+        touch "$LOG_FILE"
+        chmod 644 "$LOG_FILE"
+
         # Create systemd service
         cat << EOF > /etc/systemd/system/mhsanaee-bot.service
 [Unit]
@@ -2278,40 +2329,56 @@ StartLimitBurst=10
 WantedBy=multi-user.target
 EOF
 
+        chmod 644 /etc/systemd/system/mhsanaee-bot.service
         systemctl daemon-reload
         systemctl enable mhsanaee-bot
         systemctl start mhsanaee-bot
         if [ $? -ne 0 ]; then
             log "Error: Failed to start mhsanaee-bot service"
+            whiptail --msgbox "Error: Failed to start bot service." 8 60
             exit 1
         fi
-    
+
         whiptail --msgbox "Bot installed and started successfully!" 8 60
+        log "Bot installed and started successfully"
     }
-    
+
     # Uninstallation function
     uninstall_bot() {
-        systemctl stop mhsanaee-bot
-        systemctl disable mhsanaee-bot
-        rm -f /etc/systemd/system/mhsanaee-bot.service
+        if [ -f /etc/systemd/system/mhsanaee-bot.service ]; then
+            systemctl stop mhsanaee-bot
+            systemctl disable mhsanaee-bot
+            rm -f /etc/systemd/system/mhsanaee-bot.service
+            systemctl daemon-reload
+        fi
         rm -rf /opt/mhsanaee-bot
         rm -f /var/log/mhsanaee_bot.log
-        systemctl daemon-reload
         whiptail --msgbox "Bot uninstalled successfully!" 8 60
+        log "Bot uninstalled successfully"
     }
-    
+
     # Edit token function
     edit_token() {
+        if [ ! -f /opt/mhsanaee-bot/config.sh ]; then
+            whiptail --msgbox "Error: Bot is not installed. Cannot edit token." 8 60
+            return
+        fi
         CURRENT_TOKEN=$(grep BOT_TOKEN /opt/mhsanaee-bot/config.sh | cut -d'"' -f2)
-        NEW_TOKEN=$(whiptail --inputbox "Enter new Telegram Bot Token" 8 60 "$CURRENT_TOKEN" 3>&1 1>&2 2>&3)
+        NEW_TOKEN=$(whiptail --inputbox "Enter new Telegram bot token" 8 60 "$CURRENT_TOKEN" 3>&1 1>&2 2>&3)
         if [ -n "$NEW_TOKEN" ]; then
             sed -i "s/BOT_TOKEN=\".*\"/BOT_TOKEN=\"$NEW_TOKEN\"/" /opt/mhsanaee-bot/config.sh
             sed -i "s|API_URL=\".*\"|API_URL=\"https://api.telegram.org/bot$NEW_TOKEN\"|" /opt/mhsanaee-bot/config.sh
             systemctl restart mhsanaee-bot
-            whiptail --msgbox "Bot token updated and bot restarted!" 8 60
+            if [ $? -eq 0 ]; then
+                whiptail --msgbox "Bot token updated and bot restarted successfully!" 8 60
+                log "Bot token updated and bot restarted"
+            else
+                whiptail --msgbox "Error: Failed to restart bot." 8 60
+                log "Error: Failed to restart bot after token update"
+            fi
         fi
     }
-    
+
     # Bot logic starts here
     run_bot() {
         # Load configuration
@@ -2319,7 +2386,13 @@ EOF
             log "Error: Failed to source /opt/mhsanaee-bot/config.sh"
             exit 1
         fi
-    
+
+        # Check if database exists
+        if [ ! -f "$DB_PATH" ]; then
+            log "Error: Database file $DB_PATH not found"
+            exit 1
+        fi
+
         # Function to send Telegram message
         send_message() {
             local chat_id=$1
@@ -2332,7 +2405,7 @@ EOF
                 log "Error: Failed to send message to chat_id=$chat_id"
             fi
         }
-    
+
         # Function to parse VLESS config
         parse_vless_config() {
             local vless=$1
@@ -2344,7 +2417,7 @@ EOF
                 echo ""
             fi
         }
-    
+
         # Function to query client usage from SQLite
         get_client_usage() {
             local email=$1
@@ -2360,7 +2433,7 @@ EOF
             fi
             echo "$result"
         }
-    
+
         # Function to format usage response in Persian
         format_usage() {
             local total=$1
@@ -2412,7 +2485,7 @@ EOF
             fi
             echo -e "<b>اطلاعات استفاده کانفیگ</b>\nمجموع: ${total_gb} گیگابایت\nاستفاده‌شده: ${used_gb} گیگابایت\nمانده: $remaining\nانقضا: $expiry_date\n$remaining_time\n<b>وضعیت: $status</b>"
         }
-    
+
         # Function to handle commands
         handle_command() {
             local chat_id=$1
@@ -2430,7 +2503,7 @@ EOF
                     ;;
             esac
         }
-    
+
         # Main loop for long polling
         OFFSET=0
         while true; do
@@ -2473,7 +2546,7 @@ EOF
                         send_message "$chat_id" "خطا: کانفیگ با ایمیل '$email' یافت نشد"
                         continue
                     fi
-                    IFS='|' read total used expiry <<<"$result"
+                    IFS='|' read -r total used expiry <<<"$result"
                     if [ -z "$total" ] || [ -z "$used" ] || [ -z "$expiry" ]; then
                         log "Error: Failed to parse usage result: $result"
                         send_message "$chat_id" "خطا: امکان بازیابی جزئیات استفاده وجود ندارد"
@@ -2491,19 +2564,16 @@ EOF
             done
         done
     }
-    
-    # Check if script is called with --run to start the bot
+
+    # Main execution
+    check_dependencies
     if [ "$1" == "--run" ]; then
         log "Starting bot"
         run_bot
     else
         show_menu
     fi
-    
-    # Ensure usertelegram is called
-    usertelegram "$@"
 }
-
 
 
 # main program
