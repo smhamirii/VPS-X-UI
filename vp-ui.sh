@@ -2330,10 +2330,10 @@ run_bot() {
     parse_vless_config() {
         local vless=$1
         if [[ $vless =~ vless://([a-z0-9-]{8}-[a-z0-9-]{4}-[a-z0-9-]{4}-[a-z0-9-]{4}-[a-z0-9-]{12})@[^:]+:[0-9]+(\?.*#[^[:space:]]+|#[^[:space:]]+) ]]; then
-            EMAIL=$(echo "$vless" | grep -oP '#\K[^[:space:]]+' | tr '[:upper:]' '[:lower:]' | sed 's/[^-]*-//')
+            EMAIL=$(echo "$vless" | grep -oP '#\K[^[:space:]]+' | tr '[:upper:]' '[:lower:]')
             echo "$EMAIL"
         else
-            log "Error: Invalid VLESS config"
+            log "Error: Invalid VLESS config: $vless"
             echo ""
         fi
     }
@@ -2342,10 +2342,12 @@ run_bot() {
     get_client_usage() {
         local email=$1
         local result
-        # Use printf to safely escape the email variable
-        result=$(sqlite3 "$DB_PATH" "SELECT total, up + down AS used, expiry_time FROM client_traffics WHERE LOWER(email) = LOWER('$(printf '%s' "$email" | sqlite3 -cmd '.timeout 1000' /dev/null)');" 2>>"$LOG_FILE")
+        log "Debug: Querying database for email: $email"
+        result=$(sqlite3 "$DB_PATH" "SELECT total, up + down AS used, expiry_time FROM client_traffics WHERE email = '$email';" 2>>"$LOG_FILE")
         if [ $? -ne 0 ]; then
             log "Error: SQLite query failed for email: $email"
+        else
+            log "Debug: Query result for email $email: $result"
         fi
         echo "$result"
     }
@@ -2458,6 +2460,7 @@ run_bot() {
                     send_message "$chat_id" "خطا: پیکربندی VLESS نامعتبر است"
                     continue
                 fi
+                log "Debug: Extracted email: $email"
                 result=$(get_client_usage "$email")
                 if [ -z "$result" ]; then
                     send_message "$chat_id" "خطا: کانفیگ با ایمیل '$email' یافت نشد"
