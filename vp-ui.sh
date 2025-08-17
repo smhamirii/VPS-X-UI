@@ -2348,7 +2348,7 @@ SELECT total, up + down AS used, expiry_time
 FROM client_traffics
 WHERE LOWER(email) = LOWER('$email');
 EOF
-        )
+)
         if [ $? -ne 0 ]; then
             log "Error: SQLite query failed for email: $email"
         else
