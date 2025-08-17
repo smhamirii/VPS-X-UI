@@ -2330,7 +2330,7 @@ run_bot() {
     parse_vless_config() {
         local vless=$1
         if [[ $vless =~ vless://([a-z0-9-]{8}-[a-z0-9-]{4}-[a-z0-9-]{4}-[a-z0-9-]{4}-[a-z0-9-]{12})@[^:]+:[0-9]+(\?.*#[^[:space:]]+|#[^[:space:]]+) ]]; then
-            EMAIL=$(echo "$vless" | grep -oP '#\K[^[:space:]]+' | tr '[:upper:]' '[:lower:]')
+            EMAIL=$(echo "$vless" | grep -oP '#\K[^[:space:]]+' | tr '[:upper:]' '[:lower:]' | sed 's/[^-]*-//')
             echo "$EMAIL"
         else
             log "Error: Invalid VLESS config: $vless"
@@ -2343,7 +2343,12 @@ run_bot() {
         local email=$1
         local result
         log "Debug: Querying database for email: $email"
-        result=$(sqlite3 "$DB_PATH" "SELECT total, up + down AS used, expiry_time FROM client_traffics WHERE email = '$email';" 2>>"$LOG_FILE")
+        result=$(sqlite3 "$DB_PATH" <<EOF
+SELECT total, up + down AS used, expiry_time
+FROM client_traffics
+WHERE LOWER(email) = LOWER('$email');
+EOF
+ 2>>"$LOG_FILE")
         if [ $? -ne 0 ]; then
             log "Error: SQLite query failed for email: $email"
         else
@@ -2587,6 +2592,7 @@ EOF
     check_dependencies
     show_menu
 }
+
 
 # main program
 main_program() {
